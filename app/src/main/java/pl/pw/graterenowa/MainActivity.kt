@@ -12,7 +12,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import android.Manifest
 import android.app.AlertDialog
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 
 class MainActivity : AppCompatActivity() {
@@ -38,6 +42,9 @@ class MainActivity : AppCompatActivity() {
         }
 
     private var permissionsGranted = false
+    private var bluetoothEnabled = false
+    private var locationEnabled = false
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,15 +71,60 @@ class MainActivity : AppCompatActivity() {
         Log.d("MainActivity", "onPause")
     }
 
+    private fun showExplanation(title: String, explanation: String) {
+        // show an explanation to the user that this app requires bluetooth
+        val alertDialog = AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(explanation)
+            .setPositiveButton("OK") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .create()
+        alertDialog.show()
+    }
+
+    private fun checkBluetoothStatus() : Boolean {
+        val bluetoothManager: BluetoothManager = getSystemService(BluetoothManager::class.java)
+        val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
+        if (bluetoothAdapter == null) {
+            showExplanation("Bluetooth not found on the device", "This app needs Bluetooth in order to scan beacons.")
+            return false
+        }
+        if (!bluetoothAdapter.isEnabled) {
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            // check again an if not enabled, show explanation
+            if (!bluetoothAdapter.isEnabled) {
+                showExplanation("Bluetooth must be enabled", "This app needs Bluetooth to be enabled in order to scan beacons.")
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun checkBluetoothON() : Boolean {
+        val status = checkBluetoothStatus()
+        bluetoothEnabled = status
+        return status
+    }
+
+    private fun runApp() {
+        checkPermissions()
+        if (!permissionsGranted) {
+            showExplanation("Permissions not granted", "This app needs the Location and Bluetooth permissions in order to scan beacons.")
+            return
+        }
+
+        if (!checkBluetoothON()) {
+            return
+        }
+
+        startBeaconScanning()
+    }
+
     override fun onResume() {
         super.onResume()
         Log.d("MainActivity", "onResume")
-        checkPermissions()
-        if (permissionsGranted) {
-            startBeaconScanning()
-        } else {
-            showPermissionsExplanation()
-        }
+        runApp()
     }
 
     override fun onStop() {
@@ -103,13 +155,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkBluetoothPermission(): Boolean {
-        return checkPermission(
-            Manifest.permission.BLUETOOTH_SCAN,
-            "Bluetooth scanning permission is required for scanning beacons"
-        ) && checkPermission(
-            Manifest.permission.BLUETOOTH_CONNECT,
-            "Bluetooth connecting permission is required for scanning beacons"
-        )
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            checkPermission(
+                Manifest.permission.BLUETOOTH_SCAN,
+                "Bluetooth scanning permission is required for scanning beacons"
+            ) && checkPermission(
+                Manifest.permission.BLUETOOTH_CONNECT,
+                "Bluetooth connecting permission is required for scanning beacons"
+            )
+        } else {
+            TODO("VERSION.SDK_INT < S")
+            return false
+        }
     }
 
     private fun checkPermission(permission: String, rationale: String): Boolean {
@@ -145,21 +202,11 @@ class MainActivity : AppCompatActivity() {
                 return ActivityCompat.checkSelfPermission(
                         this,
                         permission
-                    ) == PackageManager.PERMISSION_GRANTED
+                    ) != PackageManager.PERMISSION_DENIED
             }
         }
     }
 
-    private fun showPermissionsExplanation() {
-        val alertDialog = AlertDialog.Builder(this)
-            .setTitle("Location Permission")
-            .setMessage("This app needs the Location and Bluetooth permission in order to scan beacons.")
-            .setPositiveButton("OK") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .create()
-        alertDialog.show()
-    }
 
     private fun startBeaconScanning() {
         // TODO beacon scanning
