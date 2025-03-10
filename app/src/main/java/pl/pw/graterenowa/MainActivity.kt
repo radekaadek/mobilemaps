@@ -20,6 +20,10 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
 import android.widget.Toast
+import androidx.lifecycle.Observer
+import org.altbeacon.beacon.BeaconManager
+import org.altbeacon.beacon.MonitorNotifier
+import org.altbeacon.beacon.Region
 
 class MainActivity : AppCompatActivity() {
     private val requestPermissionLauncher =
@@ -122,11 +126,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (!checkBluetoothON() or !checkLocationON()) {
-            return
+        if (checkBluetoothON() and checkLocationON()) {
+            startBeaconScanning()
         }
-
-        startBeaconScanning()
     }
 
     override fun onResume() {
@@ -219,5 +221,28 @@ class MainActivity : AppCompatActivity() {
     private fun startBeaconScanning() {
         // TODO beacon scanning
         Log.d("MainActivity", "Permissions granted, scanning beacons...")
+        val beaconManager =  BeaconManager.getInstanceForApplication(this)
+        val region = Region("all-beacons-region", null, null, null)
+        // Set up a Live Data observer so this Activity can get monitoring callbacks
+        // observer will be called each time the monitored regionState changes (inside vs. outside region)
+        beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
+        beaconManager.startMonitoring(region)
+        beaconManager.addRangeNotifier { beacons, _ ->
+//            Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
+            var msg = "Beacons found: "
+            for (beacon in beacons) {
+                msg += "\n${beacon.bluetoothName}\n"
+                msg += "RSSI: ${beacon.distance}\n"
+            }
+        }
+    }
+
+    val monitoringObserver = Observer<Int> { state ->
+        if (state == MonitorNotifier.INSIDE) {
+            Log.d("MainActivity", "Detected beacons(s)")
+        }
+        else {
+            Log.d("MainActivity", "Stopped detecteing beacons")
+        }
     }
 }
