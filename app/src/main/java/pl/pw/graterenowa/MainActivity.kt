@@ -14,8 +14,10 @@ import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import android.widget.Toast
 
@@ -91,12 +93,8 @@ class MainActivity : AppCompatActivity() {
             return false
         }
         if (!bluetoothAdapter.isEnabled) {
-            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            // check again an if not enabled, show explanation
-            if (!bluetoothAdapter.isEnabled) {
                 showExplanation("Bluetooth must be enabled", "This app needs Bluetooth to be enabled in order to scan beacons.")
-                return false
-            }
+            return false
         }
         return true
     }
@@ -107,6 +105,16 @@ class MainActivity : AppCompatActivity() {
         return status
     }
 
+    private fun checkLocationON(): Boolean {
+        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        val locationON = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        if (!locationON) {
+            showExplanation("Location not enabled", "This app needs Location to be enabled in order to scan beacons.")
+        }
+        return locationON
+    }
+
     private fun runApp() {
         checkPermissions()
         if (!permissionsGranted) {
@@ -114,7 +122,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (!checkBluetoothON()) {
+        if (!checkBluetoothON() or !checkLocationON()) {
             return
         }
 
