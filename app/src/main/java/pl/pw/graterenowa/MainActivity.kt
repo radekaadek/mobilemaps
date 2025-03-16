@@ -14,8 +14,10 @@ import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
@@ -119,6 +121,42 @@ class MainActivity : AppCompatActivity() {
         return locationON
     }
 
+    private val bluetoothReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                    BluetoothAdapter.STATE_ON -> {
+                        bluetoothEnabled = true
+                        Toast.makeText(context, "Bluetooth is ON", Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {
+                        bluetoothEnabled = false
+                        Toast.makeText(context, "Bluetooth is not ON", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private val locationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
+                val locationManager = context.getSystemService(LOCATION_SERVICE) as LocationManager
+//                val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+//                val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                locationEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+
+                if (locationEnabled) {
+                    locationEnabled = true
+                    Toast.makeText(context, "Location Services Enabled", Toast.LENGTH_SHORT).show()
+                } else {
+                    locationEnabled = false
+                    Toast.makeText(context, "Location Services Disabled", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun runApp() {
         checkPermissions()
         if (!permissionsGranted) {
@@ -126,7 +164,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (checkBluetoothON() and checkLocationON()) {
+        checkBluetoothON()
+        checkLocationON()
+
+        val btFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        registerReceiver(bluetoothReceiver, btFilter)
+        val locationFilter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
+        registerReceiver(locationReceiver, locationFilter)
+
+        if (bluetoothEnabled && locationEnabled) {
             startBeaconScanning()
         }
     }
@@ -221,6 +267,7 @@ class MainActivity : AppCompatActivity() {
     private fun startBeaconScanning() {
         // TODO beacon scanning
         Log.d("MainActivity", "Permissions granted, scanning beacons...")
+        Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
         val beaconManager =  BeaconManager.getInstanceForApplication(this)
         val region = Region("all-beacons-region", null, null, null)
         // Set up a Live Data observer so this Activity can get monitoring callbacks
@@ -232,7 +279,7 @@ class MainActivity : AppCompatActivity() {
             var msg = "Beacons found: "
             for (beacon in beacons) {
                 msg += "\n${beacon.bluetoothName}\n"
-                msg += "RSSI: ${beacon.distance}\n"
+                msg += "Distance: ${beacon.distance}\n"
             }
         }
     }
