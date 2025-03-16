@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private var permissionsGranted = false
     private var bluetoothEnabled = false
     private var locationEnabled = false
+    private var scanningBeacons = false
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -118,7 +119,12 @@ class MainActivity : AppCompatActivity() {
         if (!locationON) {
             showExplanation("Location not enabled", "This app needs Location to be enabled in order to scan beacons.")
         }
+        locationEnabled = locationON
         return locationON
+    }
+
+    private fun servicesTriggerCheck(): Boolean {
+        return checkBluetoothON() && checkLocationON()
     }
 
     private val bluetoothReceiver = object : BroadcastReceiver() {
@@ -128,6 +134,9 @@ class MainActivity : AppCompatActivity() {
                     BluetoothAdapter.STATE_ON -> {
                         bluetoothEnabled = true
                         Toast.makeText(context, "Bluetooth is ON", Toast.LENGTH_SHORT).show()
+                        if (locationEnabled) {
+                            startBeaconScanning()
+                        }
                     }
                     else -> {
                         bluetoothEnabled = false
@@ -140,6 +149,7 @@ class MainActivity : AppCompatActivity() {
 
     private val locationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            val action = intent.action
             if (intent.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
                 val locationManager = context.getSystemService(LOCATION_SERVICE) as LocationManager
 //                val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
@@ -149,6 +159,10 @@ class MainActivity : AppCompatActivity() {
                 if (locationEnabled) {
                     locationEnabled = true
                     Toast.makeText(context, "Location Services Enabled", Toast.LENGTH_SHORT).show()
+                    // check if bluetooth is enabled, if it is then start beacon scanning
+                    if (bluetoothEnabled) {
+                        startBeaconScanning()
+                    }
                 } else {
                     locationEnabled = false
                     Toast.makeText(context, "Location Services Disabled", Toast.LENGTH_SHORT).show()
@@ -164,15 +178,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        checkBluetoothON()
-        checkLocationON()
-
         val btFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
         registerReceiver(bluetoothReceiver, btFilter)
         val locationFilter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
         registerReceiver(locationReceiver, locationFilter)
 
-        if (bluetoothEnabled && locationEnabled) {
+        if (servicesTriggerCheck()) {
             startBeaconScanning()
         }
     }
@@ -265,9 +276,12 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun startBeaconScanning() {
-        // TODO beacon scanning
-        Log.d("MainActivity", "Permissions granted, scanning beacons...")
+        if (scanningBeacons) {
+            return
+        }
+        scanningBeacons = true
         Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
+        Log.d("MainActivity", "Permissions granted, scanning beacons...")
         val beaconManager =  BeaconManager.getInstanceForApplication(this)
         val region = Region("all-beacons-region", null, null, null)
         // Set up a Live Data observer so this Activity can get monitoring callbacks
@@ -275,7 +289,10 @@ class MainActivity : AppCompatActivity() {
         beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
         beaconManager.startMonitoring(region)
         beaconManager.addRangeNotifier { beacons, _ ->
-//            Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
+            val beaconCount = beacons.size
+            if (beaconCount > 0) {
+                Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
+            }
             var msg = "Beacons found: "
             for (beacon in beacons) {
                 msg += "\n${beacon.bluetoothName}\n"
