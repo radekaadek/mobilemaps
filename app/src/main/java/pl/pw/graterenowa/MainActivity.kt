@@ -23,7 +23,9 @@ import android.location.LocationManager
 import android.os.Build
 import android.widget.Toast
 import androidx.lifecycle.Observer
+import org.altbeacon.beacon.Beacon
 import org.altbeacon.beacon.BeaconManager
+import org.altbeacon.beacon.BeaconParser
 import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.Region
 
@@ -283,22 +285,35 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
         Log.d("MainActivity", "Permissions granted, scanning beacons...")
         val beaconManager =  BeaconManager.getInstanceForApplication(this)
+        listOf(
+            BeaconParser.EDDYSTONE_UID_LAYOUT,
+            BeaconParser.EDDYSTONE_TLM_LAYOUT,
+            BeaconParser.EDDYSTONE_URL_LAYOUT
+        ).forEach {
+            beaconManager.beaconParsers.add(BeaconParser().setBeaconLayout(it))
+        }
         val region = Region("all-beacons-region", null, null, null)
         // Set up a Live Data observer so this Activity can get monitoring callbacks
         // observer will be called each time the monitored regionState changes (inside vs. outside region)
         beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
         beaconManager.startMonitoring(region)
-        beaconManager.addRangeNotifier { beacons, _ ->
-            val beaconCount = beacons.size
-            if (beaconCount > 0) {
-                Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
-            }
-            var msg = "Beacons found: "
-            for (beacon in beacons) {
-                msg += "\n${beacon.bluetoothName}\n"
-                msg += "Distance: ${beacon.distance}\n"
-            }
+//        beaconManager.addRangeNotifier { beacons, _ ->
+//            val beaconCount = beacons.size
+//            if (beaconCount > 0) {
+//                Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
+//            }
+//            var msg = ""
+//            for (beacon in beacons) {
+//                msg = "Beacons found:"
+//                msg += "\n${beacon.bluetoothName}\n"
+//                msg += "Distance: ${beacon.distance}\n"
+//            }
+//        }
+        val rangingObserver = Observer<Collection<Beacon>> { beacons ->
+            Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
         }
+        // observer will be called each time a new rangedBeacons is measured
+        beaconManager.getRegionViewModel(region).rangedBeacons.observe(this, rangingObserver)
     }
 
     val monitoringObserver = Observer<Int> { state ->
