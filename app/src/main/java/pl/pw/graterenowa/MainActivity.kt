@@ -72,8 +72,10 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         Log.d("MainActivity", "onStart")
-        findViewById<Button>(R.id.map_button).setOnClickListener {
-            Log.d("MainActivity", "CLICK!!")
+        findViewById<Button>(R.id.start).setOnClickListener {
+            if (servicesTriggerCheck()) {
+                startBeaconScanning()
+            }
         }
     }
 

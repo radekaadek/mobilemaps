@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">graterenowa</string>
-    <string name="main_button">Witam Witam</string>
-    <string name="button2">b2</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
 </resources>
