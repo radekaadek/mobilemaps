@@ -55,6 +55,20 @@ class MainActivity : AppCompatActivity() {
     private var bluetoothEnabled = false
     private var locationEnabled = false
     private var scanningBeacons = false
+    private val beaconJsonFileNames = listOf(
+        "beacons_gg0.txt",
+        "beacons_gg1.txt",
+        "beacons_gg2b1.txt",
+        "beacons_gg3b2.txt",
+        "beacons_gg3b3.txt",
+        "beacons_gg4.txt",
+        "beacons_gg_out.txt"
+    )
+
+//    private fun loadReferenceBeacons(): List<Beacon> {
+//        val beacons = mutableListOf<Beacon>()
+//
+//    }
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
