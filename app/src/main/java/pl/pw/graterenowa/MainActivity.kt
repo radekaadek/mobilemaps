@@ -297,23 +297,20 @@ class MainActivity : AppCompatActivity() {
         // observer will be called each time the monitored regionState changes (inside vs. outside region)
         beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
         beaconManager.startMonitoring(region)
-//        beaconManager.addRangeNotifier { beacons, _ ->
-//            val beaconCount = beacons.size
-//            if (beaconCount > 0) {
-//                Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
-//            }
-//            var msg = ""
-//            for (beacon in beacons) {
-//                msg = "Beacons found:"
-//                msg += "\n${beacon.bluetoothName}\n"
-//                msg += "Distance: ${beacon.distance}\n"
-//            }
-//        }
-        val rangingObserver = Observer<Collection<Beacon>> { beacons ->
-            Toast.makeText(this, "Beacons found: ${beacons.size}", Toast.LENGTH_SHORT).show()
+        beaconManager.addRangeNotifier { beacons, _ ->
+            val beaconCount = beacons.size
+            if (beaconCount > 0) {
+                var msg = "Beacons found:"
+                for (beacon in beacons) {
+                    msg += "\n${beacon.bluetoothName}\n"
+                    msg += "Distance: ${beacon.distance}\n"
+                    msg += "RSSI: ${beacon.rssi}"
+                }
+                Log.d("MainActivity", msg)
+            }
         }
         // observer will be called each time a new rangedBeacons is measured
-        beaconManager.getRegionViewModel(region).rangedBeacons.observe(this, rangingObserver)
+        beaconManager.startRangingBeacons(region)
     }
 
     val monitoringObserver = Observer<Int> { state ->
