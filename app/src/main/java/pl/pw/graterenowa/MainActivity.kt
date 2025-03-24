@@ -69,25 +69,34 @@ class MainActivity : AppCompatActivity() {
         "beacons_gg_out.txt"
     )
 
-    private var beaconMap = mutableMapOf<Int, BeaconData>()
+    private var beaconMap: Map<Int, BeaconData>? = null
 
-    private fun loadReferenceBeacons(): BeaconResponse {
+    private fun loadReferenceBeacons(): MutableList<BeaconResponse> {
         val assetManager = this.assets
         val gson = Gson()
+        val beaconResponses = mutableListOf<BeaconResponse>()
 
-        return try {
-            // Open and read the JSON file from assets
-            val inputStream = assetManager.open("beacons_gg0.txt")
-            val json = inputStream.bufferedReader().use { it.readText() }
+        for (fileName in beaconJsonFileNames) {
+            try {
+                // Read the JSON file
+                val inputStream = assetManager.open(fileName)
+                val json = inputStream.bufferedReader().use { it.readText() }
 
-            // Parse JSON into BeaconResponse
-            gson.fromJson(json, BeaconResponse::class.java)
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error loading reference beacons", e)
-            e.printStackTrace()
-            // Return an empty BeaconResponse in case of an error
-            BeaconResponse(emptyList(), 0, 0, 0, 0)
+                // Parse JSON into BeaconResponse and add to list
+                val beaconResponse = gson.fromJson(json, BeaconResponse::class.java)
+                beaconResponses.add(beaconResponse)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
+        val beacons = mutableListOf<BeaconData>()
+        beaconResponses.forEach { beaconResponse ->
+            beaconResponse.items.forEach { beaconData ->
+                beacons.add(beaconData)
+            }
+        }
+        beaconMap = beacons.associateBy { it.id }
+        return beaconResponses
     }
 
 
@@ -101,9 +110,9 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
-        val beacons = loadReferenceBeacons()
+        loadReferenceBeacons()
         // log id of all beacons
-        Log.d("MainActivity", "Loaded ${beacons.totalItemsCount}")
+        Log.d("MainActivity", "Loaded ${beaconMap?.size}")
     }
 
     override fun onStart() {
