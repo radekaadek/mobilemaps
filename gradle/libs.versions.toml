@@ -24,6 +24,7 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 google-play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 android-beacon-library = { group = "org.altbeacon", name = "android-beacon-library", version.ref = "androidBeaconLibrary" }
 gson = { group = "com.google.code.gson", name = "gson", version = "2.12.1" }
+osmdroid = { group = "org.osmdroid", name = "osmdroid-android", version = "6.1.20" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

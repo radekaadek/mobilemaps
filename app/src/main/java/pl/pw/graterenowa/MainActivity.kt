@@ -68,6 +68,7 @@ class MainActivity : AppCompatActivity() {
         "beacons_gg4.txt",
         "beacons_gg_out.txt"
     )
+    private var currentPosition: Pair<Double, Double> = Pair(0.0, 0.0)
 
     private var beaconMap: Map<String, BeaconData>? = null
 
@@ -111,8 +112,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         loadReferenceBeacons()
-        // log id of all beacons
-        Log.d("MainActivity", "Loaded ${beaconMap?.size}")
+        Log.d("MainActivity", "Loaded ${beaconMap?.size} beacons")
     }
 
     override fun onStart() {
@@ -320,16 +320,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
     private fun calculatePosition(beaconLats: List<Double>,
                                   beaconLons: List<Double>,
                                   beaconDistances: List<Double>): Pair<Double, Double> {
-        if (beaconLats.size < 3) {
-            // Return the centroid if less than 3 beacons
-            val lat = beaconLats.average()
-            val lon = beaconLons.average()
-            return Pair(lat, lon)
+        if (beaconLats.isEmpty() || beaconLons.isEmpty() || beaconDistances.isEmpty()) {
+            return Pair(0.0, 0.0)
         }
-
         // Weighting beacons based on inverse distance (closer beacons matter more)
         var weightedLat = 0.0
         var weightedLon = 0.0

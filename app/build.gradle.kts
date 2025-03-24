@@ -36,6 +36,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.osmdroid)
     implementation(libs.gson)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
