@@ -23,11 +23,13 @@ import android.location.LocationManager
 import android.os.Build
 import android.widget.Toast
 import androidx.lifecycle.Observer
+import com.google.gson.Gson
 import org.altbeacon.beacon.Beacon
 import org.altbeacon.beacon.BeaconManager
 import org.altbeacon.beacon.BeaconParser
 import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.Region
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
     private val requestPermissionLauncher =
@@ -65,10 +67,15 @@ class MainActivity : AppCompatActivity() {
         "beacons_gg_out.txt"
     )
 
-//    private fun loadReferenceBeacons(): List<Beacon> {
-//        val beacons = mutableListOf<Beacon>()
-//
-//    }
+    private var beaconMap = mutableMapOf<Int, Beacon>()
+
+    private fun loadReferenceBeacons(): List<Beacon> {
+        val assetManager = this.assets
+        val gson = Gson()
+        val beacons = mutableListOf<Beacon>()
+
+        return beacons
+    }
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -81,6 +88,9 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
+        val beacons = loadReferenceBeacons()
+        // log id of all beacons
+        Log.d("MainActivity", "Loaded ${beacons.size}")
     }
 
     override fun onStart() {
