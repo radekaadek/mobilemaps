@@ -69,7 +69,7 @@ class MainActivity : AppCompatActivity() {
         "beacons_gg_out.txt"
     )
 
-    private var beaconMap: Map<Int, BeaconData>? = null
+    private var beaconMap: Map<String, BeaconData>? = null
 
     private fun loadReferenceBeacons(): MutableList<BeaconResponse> {
         val assetManager = this.assets
@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
                 beacons.add(beaconData)
             }
         }
-        beaconMap = beacons.associateBy { it.id }
+        beaconMap = beacons.associateBy { it.beaconUid }
         return beaconResponses
     }
 
@@ -208,14 +208,11 @@ class MainActivity : AppCompatActivity() {
 
                 if (locationEnabled) {
                     locationEnabled = true
-                    Toast.makeText(context, "Location Services Enabled", Toast.LENGTH_SHORT).show()
-                    // check if bluetooth is enabled, if it is then start beacon scanning
                     if (bluetoothEnabled) {
                         startBeaconScanning()
                     }
                 } else {
                     locationEnabled = false
-                    Toast.makeText(context, "Location Services Disabled", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -347,12 +344,17 @@ class MainActivity : AppCompatActivity() {
         beaconManager.startMonitoring(region)
         beaconManager.addRangeNotifier { beacons, _ ->
             val beaconCount = beacons.size
+            // find the beacon by its id
             if (beaconCount > 0) {
                 var msg = "Beacons found:"
                 for (beacon in beacons) {
+                    val beaconData = beaconMap?.get(beacon.bluetoothAddress)
                     msg += "\n${beacon.bluetoothName}\n"
                     msg += "Distance: ${beacon.distance}\n"
-                    msg += "RSSI: ${beacon.rssi}"
+                    msg += "RSSI: ${beacon.rssi}\n"
+                    msg += "ID: ${beacon.bluetoothAddress}\n"
+                    msg += "Lat: ${beaconData?.latitude}\n"
+                    msg += "Lon: ${beaconData?.longitude}\n"
                 }
                 Log.d("MainActivity", msg)
             }
