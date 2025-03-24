@@ -29,6 +29,8 @@ import org.altbeacon.beacon.BeaconManager
 import org.altbeacon.beacon.BeaconParser
 import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.Region
+import pl.pw.graterenowa.data.BeaconData
+import pl.pw.graterenowa.data.BeaconResponse
 import java.io.File
 
 class MainActivity : AppCompatActivity() {
@@ -67,14 +69,25 @@ class MainActivity : AppCompatActivity() {
         "beacons_gg_out.txt"
     )
 
-    private var beaconMap = mutableMapOf<Int, Beacon>()
+    private var beaconMap = mutableMapOf<Int, BeaconData>()
 
-    private fun loadReferenceBeacons(): List<Beacon> {
+    private fun loadReferenceBeacons(): BeaconResponse {
         val assetManager = this.assets
         val gson = Gson()
-        val beacons = mutableListOf<Beacon>()
 
-        return beacons
+        return try {
+            // Open and read the JSON file from assets
+            val inputStream = assetManager.open("beacons_gg0.txt")
+            val json = inputStream.bufferedReader().use { it.readText() }
+
+            // Parse JSON into BeaconResponse
+            gson.fromJson(json, BeaconResponse::class.java)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error loading reference beacons", e)
+            e.printStackTrace()
+            // Return an empty BeaconResponse in case of an error
+            BeaconResponse(emptyList(), 0, 0, 0, 0)
+        }
     }
 
 
@@ -90,7 +103,7 @@ class MainActivity : AppCompatActivity() {
         }
         val beacons = loadReferenceBeacons()
         // log id of all beacons
-        Log.d("MainActivity", "Loaded ${beacons.size}")
+        Log.d("MainActivity", "Loaded ${beacons.totalItemsCount}")
     }
 
     override fun onStart() {
