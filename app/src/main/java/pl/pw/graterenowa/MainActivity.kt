@@ -320,6 +320,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    private fun calculatePosition(beaconLats: List<Double>,
+                                  beaconLons: List<Double>,
+                                  beaconDistances: List<Double>): Pair<Double, Double> {
+        if (beaconLats.size < 3) {
+            // Return the centroid if less than 3 beacons
+            val lat = beaconLats.average()
+            val lon = beaconLons.average()
+            return Pair(lat, lon)
+        }
+
+        // Weighting beacons based on inverse distance (closer beacons matter more)
+        var weightedLat = 0.0
+        var weightedLon = 0.0
+        var totalWeight = 0.0
+
+        for (i in beaconLats.indices) {
+            val weight = 1.0 / beaconDistances[i] // Closer beacons have higher weight
+            weightedLat += beaconLats[i] * weight
+            weightedLon += beaconLons[i] * weight
+            totalWeight += weight
+        }
+
+        return Pair(weightedLat / totalWeight, weightedLon / totalWeight)
+    }
 
 
     private fun startBeaconScanning() {
@@ -346,17 +370,19 @@ class MainActivity : AppCompatActivity() {
             val beaconCount = beacons.size
             // find the beacon by its id
             if (beaconCount > 0) {
-                var msg = "Beacons found:"
+                var beaconLons = mutableListOf<Double>()
+                var beaconLats = mutableListOf<Double>()
+                var beaconDistances = mutableListOf<Double>()
                 for (beacon in beacons) {
                     val beaconData = beaconMap?.get(beacon.bluetoothAddress)
-                    msg += "\n${beacon.bluetoothName}\n"
-                    msg += "Distance: ${beacon.distance}\n"
-                    msg += "RSSI: ${beacon.rssi}\n"
-                    msg += "ID: ${beacon.bluetoothAddress}\n"
-                    msg += "Lat: ${beaconData?.latitude}\n"
-                    msg += "Lon: ${beaconData?.longitude}\n"
+                    beaconLons.add(beaconData?.longitude ?: 0.0)
+                    beaconLats.add(beaconData?.latitude ?: 0.0)
+                    beaconDistances.add(beacon.distance)
                 }
-                Log.d("MainActivity", msg)
+                val position = calculatePosition(beaconLats, beaconLons, beaconDistances)
+                val num = beaconLats.size
+                Log.d("MainActivity", "Beacons: $num")
+                Log.d("MainActivity", "Position: $position")
             }
         }
         // observer will be called each time a new rangedBeacons is measured
