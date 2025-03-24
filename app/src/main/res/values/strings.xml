@@ -2,4 +2,6 @@
     <string name="app_name">graterenowa</string>
     <string name="start">Start</string>
     <string name="stop">Stop</string>
+    <string name="main_button">Start</string>
+    <string name="button2">Stop</string>
 </resources>
