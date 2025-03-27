@@ -29,9 +29,11 @@ import org.altbeacon.beacon.BeaconManager
 import org.altbeacon.beacon.BeaconParser
 import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.Region
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
 import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
     private val requestPermissionLauncher =
@@ -68,7 +70,11 @@ class MainActivity : AppCompatActivity() {
         "beacons_gg4.txt",
         "beacons_gg_out.txt"
     )
-    private var currentPosition: Pair<Double, Double> = Pair(0.0, 0.0)
+
+    private val mapView: MapView by lazy {
+        findViewById(R.id.mapView)
+    }
+    private var currentPosition: Pair<Double, Double> = Pair(52.0, 21.0)
 
     private var beaconMap: Map<String, BeaconData>? = null
 
@@ -113,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         }
         loadReferenceBeacons()
         Log.d("MainActivity", "Loaded ${beaconMap?.size} beacons")
+        mapView.setTileSource(TileSourceFactory.MAPNIK) // TODO: doesn't work
     }
 
     override fun onStart() {
@@ -128,6 +135,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         Log.d("MainActivity", "onPause")
+        mapView.onPause()
     }
 
     private fun showExplanation(title: String, explanation: String) {
@@ -238,6 +246,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         Log.d("MainActivity", "onResume")
+        mapView.onResume()
         runApp()
     }
 
@@ -338,8 +347,8 @@ class MainActivity : AppCompatActivity() {
             weightedLon += beaconLons[i] * weight
             totalWeight += weight
         }
-
-        return Pair(weightedLat / totalWeight, weightedLon / totalWeight)
+        currentPosition = Pair(weightedLat / totalWeight, weightedLon / totalWeight)
+        return currentPosition
     }
 
 
