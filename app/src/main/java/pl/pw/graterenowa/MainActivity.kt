@@ -33,6 +33,7 @@ import org.altbeacon.beacon.Region
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapController
 import org.osmdroid.views.MapView
 import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
@@ -75,6 +76,10 @@ class MainActivity : AppCompatActivity() {
 
     private val mapView: MapView by lazy {
         findViewById(R.id.mapView)
+    }
+
+    private val mapControl by lazy {
+        mapView.controller
     }
     private var currentPosition: GeoPoint = GeoPoint(51.0, 21.0)
 
@@ -123,9 +128,8 @@ class MainActivity : AppCompatActivity() {
         loadReferenceBeacons()
         Log.d("MainActivity", "Loaded ${beaconMap?.size} beacons")
         mapView.setTileSource(TileSourceFactory.MAPNIK) // TODO: doesn't work
-        val mapControl = mapView.controller
         mapControl.setCenter(currentPosition)
-        mapControl.setZoom(12.0)
+        mapControl.setZoom(20.0)
     }
 
     override fun onStart() {
@@ -392,6 +396,7 @@ class MainActivity : AppCompatActivity() {
                     beaconDistances.add(beacon.distance)
                 }
                 val position = calculatePosition(beaconLats, beaconLons, beaconDistances)
+                mapControl.setCenter(position)
                 val num = beaconLats.size
                 Log.d("MainActivity", "Beacons: $num")
                 Log.d("MainActivity", "Position: $position")
