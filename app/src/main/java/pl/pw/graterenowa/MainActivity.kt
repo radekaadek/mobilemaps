@@ -1,15 +1,5 @@
 package pl.pw.graterenowa
 
-import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import android.util.Log
-import android.widget.Button
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import android.Manifest
 import android.app.AlertDialog
 import android.bluetooth.BluetoothAdapter
@@ -21,8 +11,14 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
-import android.preference.PreferenceManager
+import android.os.Bundle
+import android.util.Log
+import android.widget.Button
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Observer
 import com.google.gson.Gson
 import org.altbeacon.beacon.Beacon
@@ -33,385 +29,266 @@ import org.altbeacon.beacon.Region
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapController
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
 
 class MainActivity : AppCompatActivity() {
-    private val requestPermissionLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { isGranted: Boolean ->
-            if (isGranted) {
-                // Permission is granted. Continue the action or workflow in your
-                // app.
-                Toast.makeText(
-                    this,
-                    "Permission granted",
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                // Explain to the user that the feature is unavailable because the
-                // feature requires a permission that the user has denied. At the
-                // same time, respect the user's decision. Don't link to system
-                // settings in an effort to convince the user to change their
-                // decision.
-            }
-        }
 
-    private var permissionsGranted = false
+    private lateinit var mapView: MapView
+    private var positionMarker: Marker? = null // Make it nullable
+    private var beaconMap: Map<String, BeaconData>? = null
+    private var currentPosition = GeoPoint(52.2204685, 21.0101522)
+    private var scanningBeacons = false
     private var bluetoothEnabled = false
     private var locationEnabled = false
-    private var scanningBeacons = false
-    private val beaconJsonFileNames = listOf(
-        "beacons_gg0.txt",
-        "beacons_gg1.txt",
-        "beacons_gg2b1.txt",
-        "beacons_gg3b2.txt",
-        "beacons_gg3b3.txt",
-        "beacons_gg4.txt",
-        "beacons_gg_out.txt"
-    )
 
-    private val mapView: MapView by lazy {
-        findViewById(R.id.mapView)
-    }
-
-    private val mapControl by lazy {
-        mapView.controller
-    }
-    private var currentPosition: GeoPoint = GeoPoint(51.0, 21.0)
-
-    private var beaconMap: Map<String, BeaconData>? = null
-
-    private fun loadReferenceBeacons(): MutableList<BeaconResponse> {
-        val assetManager = this.assets
-        val gson = Gson()
-        val beaconResponses = mutableListOf<BeaconResponse>()
-
-        for (fileName in beaconJsonFileNames) {
-            try {
-                // Read the JSON file
-                val inputStream = assetManager.open(fileName)
-                val json = inputStream.bufferedReader().use { it.readText() }
-
-                // Parse JSON into BeaconResponse and add to list
-                val beaconResponse = gson.fromJson(json, BeaconResponse::class.java)
-                beaconResponses.add(beaconResponse)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        val beacons = mutableListOf<BeaconData>()
-        beaconResponses.forEach { beaconResponse ->
-            beaconResponse.items.forEach { beaconData ->
-                beacons.add(beaconData)
-            }
-        }
-        beaconMap = beacons.associateBy { it.beaconUid }
-        return beaconResponses
-    }
-
+    private val bluetoothReceiver by lazy { BluetoothStateReceiver() }
+    private val locationReceiver by lazy { LocationStateReceiver() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d("MainActivity", "onCreate")
-        enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
-        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
+        initializeMap()
         loadReferenceBeacons()
-        Log.d("MainActivity", "Loaded ${beaconMap?.size} beacons")
-        mapView.setTileSource(TileSourceFactory.MAPNIK) // TODO: doesn't work
-        mapControl.setCenter(currentPosition)
-        mapControl.setZoom(20.0)
+        setupListeners()
+        registerReceivers()
     }
 
-    override fun onStart() {
-        super.onStart()
-        Log.d("MainActivity", "onStart")
-        findViewById<Button>(R.id.start).setOnClickListener {
-            if (servicesTriggerCheck()) {
-                startBeaconScanning()
-            }
-        }
+    override fun onResume() {
+        super.onResume()
+        mapView.onResume()
     }
 
     override fun onPause() {
         super.onPause()
-        Log.d("MainActivity", "onPause")
         mapView.onPause()
     }
 
-    private fun showExplanation(title: String, explanation: String) {
-        // show an explanation to the user that this app requires bluetooth
-        val alertDialog = AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(explanation)
-            .setPositiveButton("OK") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .create()
-        alertDialog.show()
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceivers()
     }
 
-    private fun checkBluetoothStatus() : Boolean {
-        val bluetoothManager: BluetoothManager = getSystemService(BluetoothManager::class.java)
-        val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
-        if (bluetoothAdapter == null) {
-            showExplanation("Bluetooth not found on the device", "This app needs Bluetooth in order to scan beacons.")
-            return false
+    private fun initializeMap() {
+        Configuration.getInstance().load(applicationContext, getPreferences(MODE_PRIVATE))
+        mapView = findViewById(R.id.mapView)
+        mapView.setTileSource(TileSourceFactory.MAPNIK)
+        mapView.controller.apply {
+            setCenter(currentPosition)
+            setZoom(19.0)
         }
-        if (!bluetoothAdapter.isEnabled) {
-                showExplanation("Bluetooth must be enabled", "This app needs Bluetooth to be enabled in order to scan beacons.")
+    }
+
+    private fun loadReferenceBeacons() {
+        val beaconResponses = beaconJsonFileNames.flatMap { fileName ->
+            try {
+                assets.open(fileName).bufferedReader().use { reader ->
+                    Gson().fromJson(reader.readText(), BeaconResponse::class.java).items
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error loading $fileName", e)
+                emptyList()
+            }
+        }
+        beaconMap = beaconResponses.associateBy { it.beaconUid }
+    }
+
+    private fun setupListeners() {
+        findViewById<Button>(R.id.start).setOnClickListener {
+            if (scanningBeacons) {
+                stopBeaconScanning()
+            } else {
+                if (checkPermissions() && servicesTriggerCheck()) {
+                    startBeaconScanning()
+                }
+            }
+        }
+    }
+
+    private fun registerReceivers() {
+        registerReceiver(bluetoothReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        registerReceiver(locationReceiver, IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION))
+    }
+
+    private fun unregisterReceivers() {
+        unregisterReceiver(bluetoothReceiver)
+        unregisterReceiver(locationReceiver)
+    }
+
+    private fun checkPermissions(): Boolean {
+        val permissions = mutableListOf<String>()
+        if (!checkLocationPermission()) permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (!checkBluetoothPermission()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        }
+        if (permissions.isNotEmpty()) {
+            requestPermissions(permissions.toTypedArray(), 101)
             return false
         }
         return true
     }
 
-    private fun checkBluetoothON() : Boolean {
-        val status = checkBluetoothStatus()
-        bluetoothEnabled = status
-        return status
+    private fun checkLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun checkBluetoothPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true // Prior to S, Bluetooth permissions are handled differently
+        }
+
+    private fun servicesTriggerCheck(): Boolean = checkBluetoothON() && checkLocationON()
+
+    private fun checkBluetoothON(): Boolean {
+        val bluetoothManager: BluetoothManager = getSystemService(BluetoothManager::class.java)
+        val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
+        bluetoothEnabled = bluetoothAdapter?.isEnabled == true
+        if (!bluetoothEnabled) showExplanation("Bluetooth must be enabled", "This app needs Bluetooth to be enabled.")
+        return bluetoothEnabled
     }
 
     private fun checkLocationON(): Boolean {
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-        val locationON = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-        if (!locationON) {
-            showExplanation("Location not enabled", "This app needs Location to be enabled in order to scan beacons.")
+        locationEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        if (!locationEnabled) showExplanation("Location must be enabled", "This app needs Location to be enabled.")
+        return locationEnabled
+    }
+
+    private fun showExplanation(title: String, message: String) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+            .show()
+    }
+
+    private fun startBeaconScanning() {
+        if (scanningBeacons) return
+        scanningBeacons = true
+        Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
+        Log.d("MainActivity", "Scanning beacons...")
+
+        val beaconManager = BeaconManager.getInstanceForApplication(this)
+        beaconManager.beaconParsers.addAll(listOf(
+            BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_UID_LAYOUT),
+            BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_TLM_LAYOUT),
+            BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_URL_LAYOUT)
+        ))
+
+        val region = Region("all-beacons-region", null, null, null)
+        beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
+        beaconManager.startMonitoring(region)
+
+        // Remove existing marker if it exists before adding a new one
+        positionMarker?.let {
+            mapView.overlays.remove(it)
         }
-        locationEnabled = locationON
-        return locationON
-    }
 
-    private fun servicesTriggerCheck(): Boolean {
-        return checkBluetoothON() && checkLocationON()
-    }
+        positionMarker = Marker(mapView).apply {
+            position = currentPosition
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = "Current Position"
+        }
+        mapView.overlays.add(positionMarker)
+        mapView.invalidate()
 
-    private val bluetoothReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
-                when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
-                    BluetoothAdapter.STATE_ON -> {
-                        bluetoothEnabled = true
-                        Toast.makeText(context, "Bluetooth is ON", Toast.LENGTH_SHORT).show()
-                        if (locationEnabled) {
-                            startBeaconScanning()
-                        }
-                    }
-                    else -> {
-                        bluetoothEnabled = false
-                        Toast.makeText(context, "Bluetooth is not ON", Toast.LENGTH_SHORT).show()
-                    }
-                }
+        beaconManager.addRangeNotifier { beacons, _ ->
+            if (beacons.isNotEmpty()) {
+                updatePosition(beacons)
             }
         }
+        beaconManager.startRangingBeacons(region)
     }
 
-    private val locationReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val action = intent.action
-            if (intent.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
-                val locationManager = context.getSystemService(LOCATION_SERVICE) as LocationManager
-//                val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-//                val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-                locationEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+    private fun stopBeaconScanning() {
+        if (!scanningBeacons) return
+        scanningBeacons = false
+        Toast.makeText(this, "Stopped scanning beacons", Toast.LENGTH_SHORT).show()
+        Log.d("MainActivity", "Stopped scanning beacons")
 
-                if (locationEnabled) {
-                    locationEnabled = true
-                    if (bluetoothEnabled) {
-                        startBeaconScanning()
-                    }
-                } else {
-                    locationEnabled = false
-                }
+        val beaconManager = BeaconManager.getInstanceForApplication(this)
+        val region = Region("all-beacons-region", null, null, null)
+        beaconManager.stopRangingBeacons(region)
+        beaconManager.stopMonitoring(region)
+//        positionMarker?.let {
+//            mapView.overlays.remove(it)
+//            positionMarker = null
+//        }
+        mapView.invalidate()
+    }
+
+    private fun updatePosition(beacons: Collection<Beacon>) {
+        val beaconLats = mutableListOf<Double>()
+        val beaconLons = mutableListOf<Double>()
+        val beaconDistances = mutableListOf<Double>()
+
+        beacons.forEach { beacon ->
+            beaconMap?.get(beacon.bluetoothAddress)?.let { beaconData ->
+                beaconLons.add(beaconData.longitude)
+                beaconLats.add(beaconData.latitude)
+                beaconDistances.add(beacon.distance)
             }
         }
-    }
 
-    private fun runApp() {
-        checkPermissions()
-        if (!permissionsGranted) {
-            showExplanation("Permissions not granted", "This app needs the Location and Bluetooth permissions in order to scan beacons.")
-            return
-        }
-
-        val btFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
-        registerReceiver(bluetoothReceiver, btFilter)
-        val locationFilter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
-        registerReceiver(locationReceiver, locationFilter)
-
-        if (servicesTriggerCheck()) {
-            startBeaconScanning()
+        if (beaconLats.isNotEmpty()) {
+            currentPosition = calculatePosition(beaconLats, beaconLons, beaconDistances)
+            positionMarker?.position = currentPosition
+            mapView.invalidate()
+            Log.d("MainActivity", "Detected ${beaconLats.size} beacons, position: $currentPosition")
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        Log.d("MainActivity", "onResume")
-        mapView.onResume()
-        runApp()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        Log.d("MainActivity", "onStop")
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d("MainActivity", "onDestroy")
-    }
-
-    override fun onRestart() {
-        super.onRestart()
-        Log.d("MainActivity", "onRestart")
-    }
-
-    private fun checkPermissions(): Boolean {
-        permissionsGranted = (checkLocationPermission() && checkBluetoothPermission())
-        return permissionsGranted
-    }
-
-    private fun checkLocationPermission(): Boolean {
-        return checkPermission(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            "Location permission is required for scanning beacons"
-        )
-    }
-
-    private fun checkBluetoothPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            checkPermission(
-                Manifest.permission.BLUETOOTH_SCAN,
-                "Bluetooth scanning permission is required for scanning beacons"
-            ) && checkPermission(
-                Manifest.permission.BLUETOOTH_CONNECT,
-                "Bluetooth connecting permission is required for scanning beacons"
-            )
-        } else {
-            TODO("VERSION.SDK_INT < S")
-            return false
-        }
-    }
-
-    private fun checkPermission(permission: String, rationale: String): Boolean {
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                permission
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                // Permission is granted. Continue the action or workflow in your
-                // app.
-                return true
-            }
-            ActivityCompat.shouldShowRequestPermissionRationale(
-                this,
-                permission
-            ) -> {
-                // Explain to the user that the feature is unavailable because the
-                // feature requires a permission that the user has denied. At the
-                // same time, respect the user's decision. Don't link to system
-                // settings in an effort to convince the user to change their
-                // decision.
-                Toast.makeText(
-                    this,
-                    rationale,
-                    Toast.LENGTH_LONG
-                ).show()
-                return false
-            }
-            else -> {
-                // You can directly ask for the permission.
-                // The registered ActivityResultCallback gets the result of this request.
-                requestPermissionLauncher.launch(permission)
-                return ActivityCompat.checkSelfPermission(
-                        this,
-                        permission
-                    ) != PackageManager.PERMISSION_DENIED
-            }
-        }
-    }
-
-    private fun calculatePosition(beaconLats: List<Double>,
-                                  beaconLons: List<Double>,
-                                  beaconDistances: List<Double>): GeoPoint {
-        if (beaconLats.isEmpty() || beaconLons.isEmpty() || beaconDistances.isEmpty()) {
-            return currentPosition
-        }
-        // Weighting beacons based on inverse distance (closer beacons matter more)
+    private fun calculatePosition(beaconLats: List<Double>, beaconLons: List<Double>, beaconDistances: List<Double>): GeoPoint {
         var weightedLat = 0.0
         var weightedLon = 0.0
         var totalWeight = 0.0
 
         for (i in beaconLats.indices) {
-            val weight = 1.0 / beaconDistances[i] // Closer beacons have higher weight
+            val weight = 1.0 / beaconDistances[i]
             weightedLat += beaconLats[i] * weight
             weightedLon += beaconLons[i] * weight
             totalWeight += weight
         }
-        currentPosition = GeoPoint(weightedLat / totalWeight, weightedLon / totalWeight)
-        return currentPosition
+        return GeoPoint(weightedLat / totalWeight, weightedLon / totalWeight)
     }
 
+    private val monitoringObserver = Observer<Int> { state ->
+        Log.d("MainActivity", if (state == MonitorNotifier.INSIDE) "Detected beacons(s)" else "Stopped detecting beacons")
+    }
 
-    private fun startBeaconScanning() {
-        if (scanningBeacons) {
-            return
-        }
-        scanningBeacons = true
-        Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
-        Log.d("MainActivity", "Permissions granted, scanning beacons...")
-        val beaconManager =  BeaconManager.getInstanceForApplication(this)
-        listOf(
-            BeaconParser.EDDYSTONE_UID_LAYOUT,
-            BeaconParser.EDDYSTONE_TLM_LAYOUT,
-            BeaconParser.EDDYSTONE_URL_LAYOUT
-        ).forEach {
-            beaconManager.beaconParsers.add(BeaconParser().setBeaconLayout(it))
-        }
-        val region = Region("all-beacons-region", null, null, null)
-        // Set up a Live Data observer so this Activity can get monitoring callbacks
-        // observer will be called each time the monitored regionState changes (inside vs. outside region)
-        beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
-        beaconManager.startMonitoring(region)
-        beaconManager.addRangeNotifier { beacons, _ ->
-            val beaconCount = beacons.size
-            // find the beacon by its id
-            if (beaconCount > 0) {
-                var beaconLons = mutableListOf<Double>()
-                var beaconLats = mutableListOf<Double>()
-                var beaconDistances = mutableListOf<Double>()
-                for (beacon in beacons) {
-                    val beaconData = beaconMap?.get(beacon.bluetoothAddress)
-                    beaconLons.add(beaconData?.longitude ?: 0.0)
-                    beaconLats.add(beaconData?.latitude ?: 0.0)
-                    beaconDistances.add(beacon.distance)
-                }
-                val position = calculatePosition(beaconLats, beaconLons, beaconDistances)
-                mapControl.setCenter(position)
-                val num = beaconLats.size
-                Log.d("MainActivity", "Beacons: $num")
-                Log.d("MainActivity", "Position: $position")
+    inner class BluetoothStateReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                bluetoothEnabled = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) == BluetoothAdapter.STATE_ON
             }
         }
-        // observer will be called each time a new rangedBeacons is measured
-        beaconManager.startRangingBeacons(region)
     }
 
-    val monitoringObserver = Observer<Int> { state ->
-        if (state == MonitorNotifier.INSIDE) {
-            Log.d("MainActivity", "Detected beacons(s)")
+    inner class LocationStateReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == LocationManager.PROVIDERS_CHANGED_ACTION) {
+                val locationManager = context.getSystemService(LOCATION_SERVICE) as LocationManager
+                locationEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            }
         }
-        else {
-            Log.d("MainActivity", "Stopped detecteing beacons")
-        }
+    }
+
+    companion object {
+        private val beaconJsonFileNames = listOf(
+            "beacons_gg0.txt",
+            "beacons_gg1.txt",
+            "beacons_gg2b1.txt",
+            "beacons_gg3b2.txt",
+            "beacons_gg3b3.txt",
+            "beacons_gg4.txt",
+            "beacons_gg_out.txt"
+        )
     }
 }
