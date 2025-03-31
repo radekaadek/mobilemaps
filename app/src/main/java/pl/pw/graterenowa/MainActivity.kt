@@ -31,6 +31,7 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
 import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
 
@@ -54,6 +55,12 @@ class MainActivity : AppCompatActivity() {
         loadReferenceBeacons()
         setupListeners()
         registerReceivers()
+        // Enable multi-touch controls (zoom and rotation)
+        mapView.setMultiTouchControls(true)
+        // Optional: Enable rotation gestures
+        val rotationGestureOverlay = RotationGestureOverlay(mapView)
+        rotationGestureOverlay.isEnabled = true
+        mapView.overlays.add(rotationGestureOverlay)
     }
 
     override fun onResume() {
