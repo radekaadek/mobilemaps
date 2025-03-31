@@ -15,9 +15,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Button
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Observer
 import com.google.gson.Gson
@@ -38,8 +36,8 @@ import pl.pw.graterenowa.data.BeaconResponse
 class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: MapView
-    private var positionMarker: Marker? = null // Make it nullable
-    private var beaconMap: Map<String, BeaconData>? = null
+    private var positionMarker: Marker? = null
+    private var beaconMap: Map<String, BeaconData> = emptyMap()
     private var currentPosition = GeoPoint(52.2204685, 21.0101522)
     private var scanningBeacons = false
     private var bluetoothEnabled = false
@@ -84,7 +82,7 @@ class MainActivity : AppCompatActivity() {
         mapView.setTileSource(TileSourceFactory.MAPNIK)
         mapView.controller.apply {
             setCenter(currentPosition)
-            setZoom(19.0)
+            setZoom(19.5)
         }
     }
 
@@ -104,12 +102,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupListeners() {
         findViewById<Button>(R.id.start).setOnClickListener {
+            if (checkPermissions() && servicesTriggerCheck()) {
+                startBeaconScanning()
+            }
+        }
+        findViewById<Button>(R.id.stop).setOnClickListener {
             if (scanningBeacons) {
                 stopBeaconScanning()
-            } else {
-                if (checkPermissions() && servicesTriggerCheck()) {
-                    startBeaconScanning()
-                }
             }
         }
     }
@@ -193,19 +192,19 @@ class MainActivity : AppCompatActivity() {
         beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
         beaconManager.startMonitoring(region)
 
-        // Remove existing marker if it exists before adding a new one
+        if (positionMarker == null) {
+            positionMarker = Marker(mapView).apply {
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = "Current Position"
+            }
+            mapView.overlays.add(positionMarker)
+        }
+
         positionMarker?.let {
-            mapView.overlays.remove(it)
+            it.position = currentPosition
         }
 
-        positionMarker = Marker(mapView).apply {
-            position = currentPosition
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            title = "Current Position"
-        }
-        mapView.overlays.add(positionMarker)
         mapView.invalidate()
-
         beaconManager.addRangeNotifier { beacons, _ ->
             if (beacons.isNotEmpty()) {
                 updatePosition(beacons)
@@ -224,6 +223,7 @@ class MainActivity : AppCompatActivity() {
         val region = Region("all-beacons-region", null, null, null)
         beaconManager.stopRangingBeacons(region)
         beaconManager.stopMonitoring(region)
+        positionMarker?.title = "Position before beacon scanning stop"
 //        positionMarker?.let {
 //            mapView.overlays.remove(it)
 //            positionMarker = null
@@ -237,7 +237,7 @@ class MainActivity : AppCompatActivity() {
         val beaconDistances = mutableListOf<Double>()
 
         beacons.forEach { beacon ->
-            beaconMap?.get(beacon.bluetoothAddress)?.let { beaconData ->
+            beaconMap[beacon.bluetoothAddress]?.let { beaconData ->
                 beaconLons.add(beaconData.longitude)
                 beaconLats.add(beaconData.latitude)
                 beaconDistances.add(beacon.distance)
