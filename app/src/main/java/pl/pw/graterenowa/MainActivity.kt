@@ -21,6 +21,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
+import android.preference.PreferenceManager
 import android.widget.Toast
 import androidx.lifecycle.Observer
 import com.google.gson.Gson
@@ -29,6 +30,7 @@ import org.altbeacon.beacon.BeaconManager
 import org.altbeacon.beacon.BeaconParser
 import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.Region
+import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -74,7 +76,7 @@ class MainActivity : AppCompatActivity() {
     private val mapView: MapView by lazy {
         findViewById(R.id.mapView)
     }
-    private var currentPosition: Pair<Double, Double> = Pair(52.0, 21.0)
+    private var currentPosition: GeoPoint = GeoPoint(51.0, 21.0)
 
     private var beaconMap: Map<String, BeaconData>? = null
 
@@ -117,9 +119,13 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
+        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
         loadReferenceBeacons()
         Log.d("MainActivity", "Loaded ${beaconMap?.size} beacons")
         mapView.setTileSource(TileSourceFactory.MAPNIK) // TODO: doesn't work
+        val mapControl = mapView.controller
+        mapControl.setCenter(currentPosition)
+        mapControl.setZoom(12.0)
     }
 
     override fun onStart() {
@@ -332,9 +338,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun calculatePosition(beaconLats: List<Double>,
                                   beaconLons: List<Double>,
-                                  beaconDistances: List<Double>): Pair<Double, Double> {
+                                  beaconDistances: List<Double>): GeoPoint {
         if (beaconLats.isEmpty() || beaconLons.isEmpty() || beaconDistances.isEmpty()) {
-            return Pair(0.0, 0.0)
+            return currentPosition
         }
         // Weighting beacons based on inverse distance (closer beacons matter more)
         var weightedLat = 0.0
@@ -347,7 +353,7 @@ class MainActivity : AppCompatActivity() {
             weightedLon += beaconLons[i] * weight
             totalWeight += weight
         }
-        currentPosition = Pair(weightedLat / totalWeight, weightedLon / totalWeight)
+        currentPosition = GeoPoint(weightedLat / totalWeight, weightedLon / totalWeight)
         return currentPosition
     }
 
