@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private var scanningBeacons = false
     private var bluetoothEnabled = false
     private var locationEnabled = false
+    private var beaconManager: BeaconManager? = null
 
     private val bluetoothReceiver by lazy { BluetoothStateReceiver() }
     private val locationReceiver by lazy { LocationStateReceiver() }
@@ -177,20 +178,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun startBeaconScanning() {
         if (scanningBeacons) return
+        if (!checkPermissions()) return
+        if (!servicesTriggerCheck()) return
         scanningBeacons = true
+
         Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
         Log.d("MainActivity", "Scanning beacons...")
 
-        val beaconManager = BeaconManager.getInstanceForApplication(this)
-        beaconManager.beaconParsers.addAll(listOf(
+        if (beaconManager == null)
+            beaconManager = BeaconManager.getInstanceForApplication(this)
+        beaconManager?.beaconParsers?.addAll(listOf(
             BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_UID_LAYOUT),
             BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_TLM_LAYOUT),
             BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_URL_LAYOUT)
         ))
 
         val region = Region("all-beacons-region", null, null, null)
-        beaconManager.getRegionViewModel(region).regionState.observe(this, monitoringObserver)
-        beaconManager.startMonitoring(region)
+        beaconManager?.getRegionViewModel(region)?.regionState?.observe(this, monitoringObserver)
+        beaconManager?.startMonitoring(region)
 
         if (positionMarker == null) {
             positionMarker = Marker(mapView).apply {
@@ -205,12 +210,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         mapView.invalidate()
-        beaconManager.addRangeNotifier { beacons, _ ->
+        beaconManager?.addRangeNotifier { beacons, _ ->
             if (beacons.isNotEmpty()) {
                 updatePosition(beacons)
             }
         }
-        beaconManager.startRangingBeacons(region)
+        beaconManager?.startRangingBeacons(region)
     }
 
     private fun stopBeaconScanning() {
@@ -219,10 +224,11 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Stopped scanning beacons", Toast.LENGTH_SHORT).show()
         Log.d("MainActivity", "Stopped scanning beacons")
 
-        val beaconManager = BeaconManager.getInstanceForApplication(this)
+        if (beaconManager == null)
+            beaconManager = BeaconManager.getInstanceForApplication(this)
         val region = Region("all-beacons-region", null, null, null)
-        beaconManager.stopRangingBeacons(region)
-        beaconManager.stopMonitoring(region)
+        beaconManager?.stopRangingBeacons(region)
+        beaconManager?.stopMonitoring(region)
         positionMarker?.title = "Position before beacon scanning stop"
 //        positionMarker?.let {
 //            mapView.overlays.remove(it)
