@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: MapView
     private var positionMarker: Marker? = null
+    private var showingMarkerPosition = false
     private var beaconMap: Map<String, BeaconData> = emptyMap()
     private var currentPosition = GeoPoint(52.2204685, 21.0101522)
     private var scanningBeacons = false
@@ -243,15 +244,13 @@ class MainActivity : AppCompatActivity() {
         val region = Region("all-beacons-region", null, null, null)
         beaconManager?.stopRangingBeacons(region)
         beaconManager?.stopMonitoring(region)
-        positionMarker?.let {
-            mapView.overlays.remove(it)
-            positionMarker = null
-        }
-        positionMarker = Marker(mapView).apply {
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        val windowWasOpened = positionMarker?.isInfoWindowShown
+        positionMarker?.apply {
+            closeInfoWindow()
             position = currentPosition
             title = "Last Known Position"
-            mapView.overlays.add(this)
+            if (windowWasOpened == true)
+                showInfoWindow()
         }
     }
 
