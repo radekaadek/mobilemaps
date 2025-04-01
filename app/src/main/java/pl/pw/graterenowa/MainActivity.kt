@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity() {
 
     private val bluetoothReceiver by lazy { BluetoothStateReceiver() }
     private val locationReceiver by lazy { LocationStateReceiver() }
+    private val region by lazy { Region("all-beacons-region", null, null, null) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -177,9 +178,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startBeaconScanning() {
-        if (scanningBeacons) return
-        if (!checkPermissions()) return
-        if (!servicesTriggerCheck()) return
+        if (scanningBeacons) {
+            Toast.makeText(this, "Beacon scanning is already in progress", Toast.LENGTH_SHORT).show()
+            Log.d("MainActivity", "Beacon scanning is already in progress")
+            return
+        }
+        if (!checkPermissions()) {
+            Toast.makeText(this, "Some permissions were not granted", Toast.LENGTH_SHORT).show()
+            Log.d("MainActivity", "Some permissions were not granted")
+            return
+        }
+        if (!servicesTriggerCheck()) {
+            Log.d("MainActivity", "Services not triggered")
+            return
+        }
         scanningBeacons = true
 
         Toast.makeText(this, "Scanning beacons...", Toast.LENGTH_SHORT).show()
@@ -193,7 +205,6 @@ class MainActivity : AppCompatActivity() {
             BeaconParser().setBeaconLayout(BeaconParser.EDDYSTONE_URL_LAYOUT)
         ))
 
-        val region = Region("all-beacons-region", null, null, null)
         beaconManager?.getRegionViewModel(region)?.regionState?.observe(this, monitoringObserver)
         beaconManager?.startMonitoring(region)
 
