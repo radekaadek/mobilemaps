@@ -47,6 +47,9 @@ class MainActivity : AppCompatActivity() {
     private val bluetoothReceiver by lazy { BluetoothStateReceiver() }
     private val locationReceiver by lazy { LocationStateReceiver() }
     private val region by lazy { Region("all-beacons-region", null, null, null) }
+    private val monitoringObserver = Observer<Int> { state ->
+        Log.d("MainActivity", if (state == MonitorNotifier.INSIDE) "Detected beacons(s)" else "Stopped detecting beacons")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -211,10 +214,10 @@ class MainActivity : AppCompatActivity() {
         if (positionMarker == null) {
             positionMarker = Marker(mapView).apply {
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                title = "Current Position"
             }
             mapView.overlays.add(positionMarker)
         }
+        positionMarker?.title = "Current Position"
 
         positionMarker?.let {
             it.position = currentPosition
@@ -240,12 +243,16 @@ class MainActivity : AppCompatActivity() {
         val region = Region("all-beacons-region", null, null, null)
         beaconManager?.stopRangingBeacons(region)
         beaconManager?.stopMonitoring(region)
-        positionMarker?.title = "Position before beacon scanning stop"
-//        positionMarker?.let {
-//            mapView.overlays.remove(it)
-//            positionMarker = null
-//        }
-        mapView.invalidate()
+        positionMarker?.let {
+            mapView.overlays.remove(it)
+            positionMarker = null
+        }
+        positionMarker = Marker(mapView).apply {
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            position = currentPosition
+            title = "Last Known Position"
+            mapView.overlays.add(this)
+        }
     }
 
     private fun updatePosition(beacons: Collection<Beacon>) {
@@ -281,10 +288,6 @@ class MainActivity : AppCompatActivity() {
             totalWeight += weight
         }
         return GeoPoint(weightedLat / totalWeight, weightedLon / totalWeight)
-    }
-
-    private val monitoringObserver = Observer<Int> { state ->
-        Log.d("MainActivity", if (state == MonitorNotifier.INSIDE) "Detected beacons(s)" else "Stopped detecting beacons")
     }
 
     inner class BluetoothStateReceiver : BroadcastReceiver() {
