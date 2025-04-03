@@ -9,6 +9,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -32,12 +35,13 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
 import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.drawable.toDrawable
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: MapView
     private var positionMarker: Marker? = null
-    private var showingMarkerPosition = false
     private var beaconMap: Map<String, BeaconData> = emptyMap()
     private var currentPosition = GeoPoint(52.2204685, 21.0101522)
     private var scanningBeacons = false
@@ -217,9 +221,18 @@ class MainActivity : AppCompatActivity() {
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             }
             mapView.overlays.add(positionMarker)
+            positionMarker?.image = ContextCompat.getDrawable(this, R.drawable.miku)
+            val originalDrawable = ContextCompat.getDrawable(this, R.drawable.miku)
+            val scaledDrawable = originalDrawable?.let { drawable ->
+                val bitmap = createBitmap(75, 100)
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bitmap.toDrawable(resources)
+            }
+            positionMarker?.icon = scaledDrawable
         }
         positionMarker?.title = "Current Position"
-
         positionMarker?.let {
             it.position = currentPosition
         }
