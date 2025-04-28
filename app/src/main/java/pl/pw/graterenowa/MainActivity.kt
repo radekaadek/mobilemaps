@@ -9,9 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -37,6 +36,7 @@ import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.drawable.toDrawable
+import org.osmdroid.views.overlay.Polyline
 
 class MainActivity : AppCompatActivity() {
 
@@ -53,7 +53,42 @@ class MainActivity : AppCompatActivity() {
     private val locationReceiver by lazy { LocationStateReceiver() }
     private val region by lazy { Region("all-beacons-region", null, null, null) }
     private val monitoringObserver = Observer<Int> { state ->
-        Log.d("MainActivity", if (state == MonitorNotifier.INSIDE) "Detected beacons(s)" else "Stopped detecting beacons")
+    }
+    private var beaconIdtoMarker: MutableMap<String, Marker> = mutableMapOf()
+    private var greenBeaconIds: MutableSet<String> = mutableSetOf() // Performance
+    private var linesToUser: MutableList<Polyline> = mutableListOf()
+    private var circlesAroundUser: MutableList<Polyline> = mutableListOf()
+
+    fun getScaledDrawable(drawableId: Int, width: Int, height: Int): Drawable? {
+        val originalDrawable = ContextCompat.getDrawable(this, drawableId)
+        return originalDrawable?.let { drawable ->
+            val bitmap = createBitmap(width, height)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bitmap.toDrawable(resources)
+        }
+    }
+
+    fun drawBeaconsOnMap() {
+        for ((beaconId, beaconData) in beaconMap) {
+            val marker = Marker(mapView).apply {
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            }
+            val originalDrawable = ContextCompat.getDrawable(this, R.drawable.reddot)
+            val scaledDrawable = originalDrawable?.let { drawable ->
+                val bitmap = createBitmap(10, 10)
+                val canvas = Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bitmap.toDrawable(resources)
+            }
+            marker.icon = scaledDrawable
+            marker.position = GeoPoint(beaconData.latitude, beaconData.longitude)
+            marker.title = beaconId
+            mapView.overlays.add(marker)
+            beaconIdtoMarker[beaconId] = marker
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         val rotationGestureOverlay = RotationGestureOverlay(mapView)
         rotationGestureOverlay.isEnabled = true
         mapView.overlays.add(rotationGestureOverlay)
+        drawBeaconsOnMap()
     }
 
     override fun onResume() {
@@ -221,7 +257,6 @@ class MainActivity : AppCompatActivity() {
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             }
             mapView.overlays.add(positionMarker)
-            positionMarker?.image = ContextCompat.getDrawable(this, R.drawable.miku)
             val originalDrawable = ContextCompat.getDrawable(this, R.drawable.miku)
             val scaledDrawable = originalDrawable?.let { drawable ->
                 val bitmap = createBitmap(75, 100)
@@ -232,9 +267,9 @@ class MainActivity : AppCompatActivity() {
             }
             positionMarker?.icon = scaledDrawable
         }
-        positionMarker?.title = "Current Position"
         positionMarker?.let {
             it.position = currentPosition
+            it.title = "Current Position"
         }
 
         mapView.invalidate()
@@ -242,9 +277,47 @@ class MainActivity : AppCompatActivity() {
             if (beacons.isNotEmpty()) {
                 updatePosition(beacons)
             }
+            for (beaconId in greenBeaconIds) {
+                val marker = beaconIdtoMarker[beaconId]
+                // Set all green beacons to Red
+                marker?.icon = getScaledDrawable(R.drawable.reddot, 10, 10)
+                // Remove all lines
+                for (polyline in linesToUser) {
+                    mapView.overlays.remove(polyline)
+                }
+                // Remove all circles
+                for (polyline in circlesAroundUser) {
+                    mapView.overlays.remove(polyline)
+                }
+            }
+            linesToUser.clear()
+
+            for (beacon in beacons) {
+                val beaconId = beacon.bluetoothAddress
+                // Set found beacons to Green
+                val marker = beaconIdtoMarker[beaconId]
+                marker?.icon = getScaledDrawable(R.drawable.greendot, 30, 30)
+                greenBeaconIds.add(beaconId)
+                val beaconData = beaconMap[beaconId]
+                if (beaconData != null) {
+                    val rssi = beacon.rssi
+                    Log.d("MainActivity", "RSSI: $rssi")
+                    val lineToUser = Polyline().apply {
+                        addPoint(GeoPoint(beaconData.latitude, beaconData.longitude))
+                        addPoint(currentPosition)
+                    }
+                    lineToUser.outlinePaint.apply {
+                        color = android.graphics.Color.RED
+                        strokeWidth = (rssi.toFloat() + 110) * 0.5f
+                    }
+                    mapView.overlays.add(lineToUser)
+                    linesToUser.add(lineToUser)
+                }
+            }
         }
         beaconManager?.startRangingBeacons(region)
     }
+
 
     private fun stopBeaconScanning() {
         if (!scanningBeacons) return
@@ -284,7 +357,6 @@ class MainActivity : AppCompatActivity() {
             currentPosition = calculatePosition(beaconLats, beaconLons, beaconDistances)
             positionMarker?.position = currentPosition
             mapView.invalidate()
-            Log.d("MainActivity", "Detected ${beaconLats.size} beacons, position: $currentPosition")
         }
     }
 
@@ -292,6 +364,9 @@ class MainActivity : AppCompatActivity() {
         var weightedLat = 0.0
         var weightedLon = 0.0
         var totalWeight = 0.0
+
+        if (beaconLats.size < 2)
+            return currentPosition
 
         for (i in beaconLats.indices) {
             val weight = 1.0 / beaconDistances[i]
