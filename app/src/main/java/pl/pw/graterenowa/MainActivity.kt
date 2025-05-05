@@ -36,6 +36,9 @@ import pl.pw.graterenowa.data.BeaconResponse
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.drawable.toDrawable
 import org.osmdroid.views.overlay.Polyline
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
 
 class MainActivity : AppCompatActivity() {
 
@@ -59,6 +62,9 @@ class MainActivity : AppCompatActivity() {
     private var linesToUser: MutableList<Polyline> = mutableListOf()
     private var circlesAroundUser: MutableList<Polyline> = mutableListOf()
     private var currentFloor: Int? = null
+    private val greyDimensions = Pair(10, 10)
+    private val redDimensions = Pair(15, 15)
+    private val greenDimensions = Pair(30, 30)
 
     fun getScaledDrawable(drawableId: Int, width: Int, height: Int): Drawable? {
         val originalDrawable = ContextCompat.getDrawable(this, drawableId)
@@ -78,7 +84,7 @@ class MainActivity : AppCompatActivity() {
             }
             val originalDrawable = ContextCompat.getDrawable(this, R.drawable.greydot)
             val scaledDrawable = originalDrawable?.let { drawable ->
-                val bitmap = createBitmap(10, 10)
+                val bitmap = createBitmap(greyDimensions.first, greyDimensions.second)
                 val canvas = Canvas(bitmap)
                 drawable.setBounds(0, 0, canvas.width, canvas.height)
                 drawable.draw(canvas)
@@ -222,6 +228,11 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun rssiToDistance(rssi: Int): Double {
+        val txPower = -59.0
+        return 10.0.pow((txPower - rssi) / (10 * 4))
+    }
+
     private fun startBeaconScanning() {
         if (scanningBeacons) {
             Toast.makeText(this, "Beacon scanning is already in progress", Toast.LENGTH_SHORT).show()
@@ -281,10 +292,13 @@ class MainActivity : AppCompatActivity() {
             for (beaconId in greenBeaconIds) {
                 val marker = beaconIdtoMarker[beaconId]
                 var icon = R.drawable.greydot
+                var dims = greyDimensions
                 if (beaconMap[beaconId]?.floorId == currentFloor) {
                     icon = R.drawable.reddot
+                    dims = redDimensions
+
                 }
-                marker?.icon = getScaledDrawable(icon, 10, 10)
+                marker?.icon = getScaledDrawable(icon, dims.first, dims.second)
 
                 for (polyline in linesToUser) {
                     mapView.overlays.remove(polyline)
@@ -300,7 +314,7 @@ class MainActivity : AppCompatActivity() {
             for (beacon in beacons) {
                 val beaconId = beacon.bluetoothAddress
                 val marker = beaconIdtoMarker[beaconId]
-                marker?.icon = getScaledDrawable(R.drawable.greendot, 30, 30)
+                marker?.icon = getScaledDrawable(R.drawable.greendot, greenDimensions.first, greenDimensions.second)
                 greenBeaconIds.add(beaconId)
                 val beaconData = beaconMap[beaconId]
                 if (beaconData != null) {
@@ -318,7 +332,7 @@ class MainActivity : AppCompatActivity() {
                     linesToUser.add(lineToUser)
 
                     // Add circle
-                    val circle = getCircle(GeoPoint(beaconData.latitude, beaconData.longitude), (rssi.toFloat() + 110.0))
+                    val circle = getCircle(GeoPoint(beaconData.latitude, beaconData.longitude), rssiToDistance(rssi))
                     mapView.overlays.add(circle)
                     circlesAroundUser.add(circle)
 
@@ -326,20 +340,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             if (floorDetected != currentFloor) {
-                val t = Toast(this)
-                t.setText("Changing floor to: ${floorDetected}")
-                t.show()
-
                 // turn all red markers into grey
                 for (redId in redBeaconIds) {
                     val marker = beaconIdtoMarker[redId]
-                    marker?.icon = getScaledDrawable(R.drawable.greydot, 10, 10)
+                    marker?.icon = getScaledDrawable(R.drawable.greydot, greyDimensions.first, greyDimensions.second)
                 }
                 redBeaconIds.clear()
                 for ((id, data) in beaconMap) {
                     if (data.floorId == floorDetected && greenBeaconIds.contains(id).not()) {
                         val marker = beaconIdtoMarker[id]
-                        marker?.icon = getScaledDrawable(R.drawable.reddot, 10, 10)
+                        marker?.icon = getScaledDrawable(R.drawable.reddot, redDimensions.first, redDimensions.second)
                         redBeaconIds.add(id)
                     }
                 }
@@ -349,20 +359,30 @@ class MainActivity : AppCompatActivity() {
         beaconManager?.startRangingBeacons(region)
     }
 
-    private fun getCircle(center: GeoPoint, radius: Double): Polyline {
-        val l = Polyline()
+    private fun getCircle(center: GeoPoint, radiusMeters: Double): Polyline {
+        val earthRadius = 6378137.0 // WGS84 radius in meters
+        val centerLatRad = Math.toRadians(center.latitude)
+
         val points = (0..360 step 20).map { i ->
-            val angleInRadians = Math.toRadians(i.toDouble())
-            GeoPoint(
-                center.latitude + radius * Math.cos(angleInRadians),
-                center.longitude + radius * Math.sin(angleInRadians)
-            )
+            val angleRad = Math.toRadians(i.toDouble())
+
+            // Offsets in radians
+            val deltaLat = (radiusMeters / earthRadius) * cos(angleRad)
+            val deltaLon = (radiusMeters / (earthRadius * cos(centerLatRad))) * sin(angleRad)
+
+            // Convert back to degrees
+            val pointLat = center.latitude + Math.toDegrees(deltaLat)
+            val pointLon = center.longitude + Math.toDegrees(deltaLon)
+
+            GeoPoint(pointLat, pointLon)
         }
-        for (p in points) {
-            l.addPoint(p)
+
+        return Polyline().apply {
+            setPoints(points)
+            outlinePaint.strokeWidth = 3f
         }
-        return l
     }
+
 
     private fun stopBeaconScanning() {
         if (!scanningBeacons) return
