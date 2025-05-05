@@ -24,7 +24,6 @@ import com.google.gson.Gson
 import org.altbeacon.beacon.Beacon
 import org.altbeacon.beacon.BeaconManager
 import org.altbeacon.beacon.BeaconParser
-import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.Region
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -56,8 +55,10 @@ class MainActivity : AppCompatActivity() {
     }
     private var beaconIdtoMarker: MutableMap<String, Marker> = mutableMapOf()
     private var greenBeaconIds: MutableSet<String> = mutableSetOf() // Performance
+    private var redBeaconIds: MutableSet<String> = mutableSetOf() // Performance
     private var linesToUser: MutableList<Polyline> = mutableListOf()
     private var circlesAroundUser: MutableList<Polyline> = mutableListOf()
+    private var currentFloor: Int? = null
 
     fun getScaledDrawable(drawableId: Int, width: Int, height: Int): Drawable? {
         val originalDrawable = ContextCompat.getDrawable(this, drawableId)
@@ -75,7 +76,7 @@ class MainActivity : AppCompatActivity() {
             val marker = Marker(mapView).apply {
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             }
-            val originalDrawable = ContextCompat.getDrawable(this, R.drawable.reddot)
+            val originalDrawable = ContextCompat.getDrawable(this, R.drawable.greydot)
             val scaledDrawable = originalDrawable?.let { drawable ->
                 val bitmap = createBitmap(10, 10)
                 val canvas = Canvas(bitmap)
@@ -279,22 +280,25 @@ class MainActivity : AppCompatActivity() {
             }
             for (beaconId in greenBeaconIds) {
                 val marker = beaconIdtoMarker[beaconId]
-                // Set all green beacons to Red
-                marker?.icon = getScaledDrawable(R.drawable.reddot, 10, 10)
-                // Remove all lines
+                var icon = R.drawable.greydot
+                if (beaconMap[beaconId]?.floorId == currentFloor) {
+                    icon = R.drawable.reddot
+                }
+                marker?.icon = getScaledDrawable(icon, 10, 10)
+
                 for (polyline in linesToUser) {
                     mapView.overlays.remove(polyline)
                 }
-                // Remove all circles
                 for (polyline in circlesAroundUser) {
                     mapView.overlays.remove(polyline)
                 }
             }
+            greenBeaconIds.clear()
             linesToUser.clear()
 
+            var floorDetected: Int? = null
             for (beacon in beacons) {
                 val beaconId = beacon.bluetoothAddress
-                // Set found beacons to Green
                 val marker = beaconIdtoMarker[beaconId]
                 marker?.icon = getScaledDrawable(R.drawable.greendot, 30, 30)
                 greenBeaconIds.add(beaconId)
@@ -312,12 +316,53 @@ class MainActivity : AppCompatActivity() {
                     }
                     mapView.overlays.add(lineToUser)
                     linesToUser.add(lineToUser)
+
+                    // Add circle
+                    val circle = getCircle(GeoPoint(beaconData.latitude, beaconData.longitude), (rssi.toFloat() + 110.0))
+                    mapView.overlays.add(circle)
+                    circlesAroundUser.add(circle)
+
+                    floorDetected = beaconData.floorId
                 }
+            }
+            if (floorDetected != currentFloor) {
+                val t = Toast(this)
+                t.setText("Changing floor to: ${floorDetected}")
+                t.show()
+
+                // turn all red markers into grey
+                for (redId in redBeaconIds) {
+                    val marker = beaconIdtoMarker[redId]
+                    marker?.icon = getScaledDrawable(R.drawable.greydot, 10, 10)
+                }
+                redBeaconIds.clear()
+                for ((id, data) in beaconMap) {
+                    if (data.floorId == floorDetected && greenBeaconIds.contains(id).not()) {
+                        val marker = beaconIdtoMarker[id]
+                        marker?.icon = getScaledDrawable(R.drawable.reddot, 10, 10)
+                        redBeaconIds.add(id)
+                    }
+                }
+                currentFloor = floorDetected
             }
         }
         beaconManager?.startRangingBeacons(region)
     }
 
+    private fun getCircle(center: GeoPoint, radius: Double): Polyline {
+        val l = Polyline()
+        val points = (0..360 step 20).map { i ->
+            val angleInRadians = Math.toRadians(i.toDouble())
+            GeoPoint(
+                center.latitude + radius * Math.cos(angleInRadians),
+                center.longitude + radius * Math.sin(angleInRadians)
+            )
+        }
+        for (p in points) {
+            l.addPoint(p)
+        }
+        return l
+    }
 
     private fun stopBeaconScanning() {
         if (!scanningBeacons) return
