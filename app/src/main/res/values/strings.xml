@@ -4,4 +4,23 @@
     <string name="stop">Stop</string>
     <string name="main_button">Start</string>
     <string name="button2">Stop</string>
+    <string name="last_known_position">Last Known Position</string>
+    <string name="current_position">Current Position</string>
+    <string name="scanning_already_in_progress">Scanning already in progress</string>
+    <string name="scanning_beacons_start">Scanning beacons…</string>
+    <string name="error_starting_scanning">Error starting scanning</string>
+    <string name="stopped_scanning_beacons">Stopped scanning beacons</string>
+    <string name="permissions_granted">Permissions granted. Ready to scan.</string>
+    <string name="permissions_denied">Some permissions were denied. Cannot scan beacons.</string>
+    <string name="bluetooth_disabled_title">Bluetooth Disabled</string>
+    <string name="bluetooth_disabled_message">Bluetooth must be enabled to scan for beacons.</string>
+    <string name="location_disabled_title">Location Disabled</string>
+    <string name="location_disabled_message">Location services must be enabled for beacon scanning.</string>
+    <string name="permission_denied_fine_location">Fine location access is required to find beacons.</string>
+    <string name="permission_denied_bluetooth_scan">Bluetooth scanning permission is required (Android 12+).</string>
+    <string name="permission_denied_bluetooth_connect">Bluetooth connect permission is needed (Android 12+).</string>
+    <string name="permission_denied_generic">This permission is required.</string>
+    <string name="permission_denied_title">Permission Denied</string>
+    <string name="bluetooth_turned_off_scanning_stopped">Bluetooth turned off. Scanning stopped.</string>
+    <string name="location_turned_off_scanning_stopped">Location turned off. Scanning stopped.</string>
 </resources>

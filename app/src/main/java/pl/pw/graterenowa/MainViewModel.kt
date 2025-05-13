@@ -10,32 +10,28 @@ import org.altbeacon.beacon.Beacon
 import org.osmdroid.util.GeoPoint
 import pl.pw.graterenowa.data.BeaconData
 import pl.pw.graterenowa.data.BeaconResponse
+import pl.pw.graterenowa.utils.MapUtils
 import kotlin.math.pow
 
-// Constants that might be shared or needed by ViewModel
 private const val TAG_VM = "MainViewModel"
 private const val INITIAL_LATITUDE_VM = 52.2204685
 private const val INITIAL_LONGITUDE_VM = 21.0101522
-private const val TX_POWER_VM = -59.0
-private const val PATH_LOSS_EXPONENT_VM = 4.0
-private const val MIN_BEACON_DISTANCE_VM = 0.1
+private const val DEFAULT_TX_POWER_VM = -59.0
+private const val DEFAULT_PATH_LOSS_EXPONENT_VM = 3.5
+private const val MIN_BEACON_DISTANCE_FOR_POSITIONING_VM = 0.1
+private const val MAX_BEACON_DISTANCE_RELEVANCE_VM = 50.0
+
 private val BEACON_JSON_FILES_VM = listOf(
-    "beacons_gg0.txt",
-    "beacons_gg1.txt",
-    "beacons_gg2b1.txt",
-    "beacons_gg3b2.txt",
-    "beacons_gg3b3.txt",
-    "beacons_gg4.txt",
-    "beacons_gg_out.txt"
+    "beacons_gg0.txt", "beacons_gg1.txt", "beacons_gg2b1.txt",
+    "beacons_gg3b2.txt", "beacons_gg3b3.txt", "beacons_gg4.txt", "beacons_gg_out.txt"
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    // --- LiveData ---
-    private val _currentPosition = MutableLiveData<GeoPoint>(GeoPoint(INITIAL_LATITUDE_VM, INITIAL_LONGITUDE_VM))
+    private val _currentPosition = MutableLiveData(GeoPoint(INITIAL_LATITUDE_VM, INITIAL_LONGITUDE_VM))
     val currentPosition: LiveData<GeoPoint> = _currentPosition
 
-    private val _scanningState = MutableLiveData<Boolean>(false)
+    private val _scanningState = MutableLiveData(false)
     val scanningState: LiveData<Boolean> = _scanningState
 
     private val _beaconMapData = MutableLiveData<Map<String, BeaconData>>(emptyMap())
@@ -53,139 +49,155 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _toastMessage = MutableLiveData<String?>()
     val toastMessage: LiveData<String?> = _toastMessage
 
-    // --- Properties ---
-    // Keep beaconMap internal to the ViewModel for now, expose as LiveData if needed for direct observation of the map itself
-    private var internalBeaconMap: Map<String, BeaconData> = emptyMap()
-    private var internalGreenBeaconIds: MutableSet<String> = mutableSetOf()
-    private var internalRedBeaconIds: MutableSet<String> = mutableSetOf()
+    private val _lastDetectedBeacons = MutableLiveData<List<Beacon>>(emptyList())
+    val lastDetectedBeacons: LiveData<List<Beacon>> = _lastDetectedBeacons
 
+    private var internalBeaconMap: Map<String, BeaconData> = emptyMap()
+
+    var txPower: Double = DEFAULT_TX_POWER_VM
+    var pathLossExponent: Double = DEFAULT_PATH_LOSS_EXPONENT_VM
 
     init {
         loadReferenceBeacons()
     }
 
     private fun loadReferenceBeacons() {
-        internalBeaconMap = BEACON_JSON_FILES_VM.flatMap { fileName ->
+        val loadedBeacons = mutableMapOf<String, BeaconData>()
+        BEACON_JSON_FILES_VM.forEach { fileName ->
             try {
                 getApplication<Application>().assets.open(fileName).bufferedReader().use { reader ->
                     Gson().fromJson(reader.readText(), BeaconResponse::class.java).items
+                        .forEach { beaconData -> loadedBeacons[beaconData.beaconUid] = beaconData }
                 }
             } catch (e: Exception) {
                 Log.e(TAG_VM, "Error loading reference beacons from $fileName", e)
                 _toastMessage.postValue("Error loading beacon data: $fileName")
-                emptyList()
             }
-        }.associateBy { it.beaconUid }
+        }
+        internalBeaconMap = loadedBeacons.toMap()
         _beaconMapData.postValue(internalBeaconMap)
         Log.d(TAG_VM, "Loaded ${internalBeaconMap.size} reference beacons.")
     }
 
     fun updateScanningState(isScanning: Boolean) {
-        _scanningState.postValue(isScanning)
+        _scanningState.value = isScanning // Use .value for MutableLiveData direct assignment
+        if (!isScanning) {
+            _greenBeaconIds.value = emptySet()
+            _currentFloor.value?.let { floor ->
+                updateRedBeaconIdsInternal(floor, emptySet())
+            } ?: run { _redBeaconIds.value = emptySet() }
+            _lastDetectedBeacons.value = emptyList()
+        }
     }
 
     fun processBeaconRangingUpdate(beacons: Collection<Beacon>) {
-        if (beacons.isEmpty()) {
-            // Reset relevant LiveData if no beacons are found
-            internalGreenBeaconIds.clear()
-            _greenBeaconIds.postValue(internalGreenBeaconIds)
-            // Potentially handle red beacons if floor logic dictates they change when no green beacons.
+        if (_scanningState.value != true) { // Corrected check
+            _lastDetectedBeacons.value = emptyList()
             return
         }
+        _lastDetectedBeacons.value = beacons.toList()
 
-        updatePosition(beacons) // This will update _currentPosition LiveData
+        val (detectedBeaconIdsInProximity, detectedFloorCandidate) = analyzeDetectedBeacons(beacons)
+        _greenBeaconIds.value = detectedBeaconIdsInProximity
 
-        val detectedBeaconIdsThisScan = mutableSetOf<String>()
-        var floorDetectedThisScan: Int? = null
+        val previousFloor = _currentFloor.value
+        var floorToSet = detectedFloorCandidate
+
+        if (detectedFloorCandidate == null && previousFloor != null) {
+            // If no floor is detected now, but we had one, stick with the previous one for red beacons.
+            floorToSet = previousFloor
+        }
+
+        if (floorToSet != previousFloor && floorToSet != null) { // Condition includes initial floor set
+            _currentFloor.value = floorToSet
+        }
+        // If floorToSet is null (no beacons, no previous floor), currentFloor remains null.
+
+        // Update red beacons based on the 'floorToSet' (which could be newly detected or the previous one)
+        if (floorToSet != null) {
+            updateRedBeaconIdsInternal(floorToSet, detectedBeaconIdsInProximity)
+        } else {
+            _redBeaconIds.value = emptySet() // No floor context, clear red beacons
+        }
+
+        val relevantBeaconsForPositioning = beacons.filter {
+            detectedBeaconIdsInProximity.contains(it.bluetoothAddress)
+        }
+        updatePosition(relevantBeaconsForPositioning)
+    }
+
+    private fun analyzeDetectedBeacons(beacons: Collection<Beacon>): Pair<Set<String>, Int?> {
+        val detectedBeaconDetails = mutableListOf<Pair<BeaconData, Double>>()
 
         beacons.forEach { beacon ->
-            val beaconId = beacon.bluetoothAddress
-            internalBeaconMap[beaconId]?.let { beaconData ->
-                detectedBeaconIdsThisScan.add(beaconId)
-                if (floorDetectedThisScan == null) { // Simple floor detection
-                    floorDetectedThisScan = beaconData.floorId
-                }
-            }
-        }
-
-        // Update green beacons
-        internalGreenBeaconIds = detectedBeaconIdsThisScan
-        _greenBeaconIds.postValue(internalGreenBeaconIds)
-
-
-        // Handle floor change and update red beacons
-        val oldFloor = _currentFloor.value
-        if (floorDetectedThisScan != null && floorDetectedThisScan != oldFloor) {
-            _currentFloor.postValue(floorDetectedThisScan)
-            updateRedBeaconIds(floorDetectedThisScan, detectedBeaconIdsThisScan)
-        } else if (floorDetectedThisScan == null && _currentFloor.value != null) {
-            // No floor detected this scan, but we had one. Re-evaluate red beacons for the current floor.
-            updateRedBeaconIds(_currentFloor.value, detectedBeaconIdsThisScan)
-        } else if (floorDetectedThisScan != null && floorDetectedThisScan == oldFloor) {
-            // Floor is the same, but green beacons might have changed, so re-evaluate red.
-            updateRedBeaconIds(floorDetectedThisScan, detectedBeaconIdsThisScan)
-        }
-
-
-    }
-    private fun updateRedBeaconIds(currentFloorVal: Int?, detectedGreenIds: Set<String>) {
-        val newRedBeaconIds = mutableSetOf<String>()
-        if (currentFloorVal != null) {
-            internalBeaconMap.forEach { (id, data) ->
-                if (data.floorId == currentFloorVal && id !in detectedGreenIds) {
-                    newRedBeaconIds.add(id)
-                }
-            }
-        }
-        internalRedBeaconIds = newRedBeaconIds
-        _redBeaconIds.postValue(internalRedBeaconIds)
-    }
-
-
-    private fun updatePosition(beacons: Collection<Beacon>) {
-        val validBeacons = beacons.mapNotNull { beacon ->
             internalBeaconMap[beacon.bluetoothAddress]?.let { beaconData ->
-                val distance = beacon.distance.coerceAtLeast(MIN_BEACON_DISTANCE_VM)
+                val distance = MapUtils.rssiToDistance(beacon.rssi, txPower, pathLossExponent)
+                if (distance < MAX_BEACON_DISTANCE_RELEVANCE_VM) {
+                    detectedBeaconDetails.add(Pair(beaconData, distance))
+                }
+            }
+        }
+
+        if (detectedBeaconDetails.isEmpty()) {
+            return Pair(emptySet(), null)
+        }
+
+        // Determine floor: floor of the closest beacon.
+        val closestBeaconData = detectedBeaconDetails.minByOrNull { it.second }?.first
+        val currentFloorCandidate = closestBeaconData?.floorId
+
+        // Green beacons are those considered "active" for the current floor or primary interaction
+        val greenIds = detectedBeaconDetails
+            .filter { (data, _) -> data.floorId == currentFloorCandidate || currentFloorCandidate == null } // If no floor determined, all are candidates
+            .map { it.first.beaconUid }
+            .toSet()
+
+        return Pair(greenIds, currentFloorCandidate)
+    }
+
+    private fun updateRedBeaconIdsInternal(currentFloorVal: Int, currentGreenBeaconIds: Set<String>) {
+        val newRedBeaconIds = internalBeaconMap.filter { (id, data) ->
+            data.floorId == currentFloorVal && id !in currentGreenBeaconIds
+        }.keys
+        _redBeaconIds.value = newRedBeaconIds
+    }
+
+    private fun updatePosition(beaconsForPositioning: Collection<Beacon>) {
+        val validBeaconMeasurements = beaconsForPositioning.mapNotNull { beacon ->
+            internalBeaconMap[beacon.bluetoothAddress]?.let { beaconData ->
+                val distance = MapUtils.rssiToDistance(beacon.rssi, txPower, pathLossExponent)
+                    .coerceAtLeast(MIN_BEACON_DISTANCE_FOR_POSITIONING_VM)
                 Triple(beaconData.latitude, beaconData.longitude, distance)
             }
         }
 
-        if (validBeacons.isEmpty()) {
-            Log.w(TAG_VM, "UpdatePosition called with no matching beacons in beaconMap.")
+        if (validBeaconMeasurements.isEmpty()) {
+            Log.w(TAG_VM, "UpdatePosition called with no valid beacons for positioning.")
             return
         }
 
-        if (validBeacons.size == 1) {
-            Log.d(TAG_VM, "Only one beacon detected, position not updated by ViewModel.")
-            // currentPosition remains the same, or you could decide to move towards the single beacon:
-            // _currentPosition.postValue(GeoPoint(validBeacons[0].first, validBeacons[0].second))
+        var totalWeight = 0.0
+        var weightedLatSum = 0.0
+        var weightedLonSum = 0.0
+
+        validBeaconMeasurements.forEach { (lat, lon, distance) ->
+            val weight = 1.0 / (distance.pow(2).coerceAtLeast(1e-9)) // Ensure weight denominator is not zero
+            weightedLatSum += lat * weight
+            weightedLonSum += lon * weight
+            totalWeight += weight
+        }
+
+        if (totalWeight > 1e-9) {
+            val newLat = weightedLatSum / totalWeight
+            val newLon = weightedLonSum / totalWeight
+            _currentPosition.value = GeoPoint(newLat, newLon)
+            Log.d(TAG_VM, "ViewModel Position updated to: Lat=$newLat, Lon=$newLon using ${validBeaconMeasurements.size} beacons.")
         } else {
-            var totalWeight = 0.0
-            var weightedLat = 0.0
-            var weightedLon = 0.0
-
-            validBeacons.forEach { (lat, lon, distance) ->
-                val weight = 1.0 / (distance + 1e-6)
-                weightedLat += lat * weight
-                weightedLon += lon * weight
-                totalWeight += weight
-            }
-
-            if (totalWeight > 0) {
-                val newLat = weightedLat / totalWeight
-                val newLon = weightedLon / totalWeight
-                _currentPosition.postValue(GeoPoint(newLat, newLon))
-                Log.d(TAG_VM, "ViewModel Position updated to: Lat=$newLat, Lon=$newLon")
-            } else {
-                Log.w(TAG_VM, "Total weight is zero, cannot calculate position via ViewModel.")
-            }
+            Log.w(TAG_VM, "Total weight is too small or zero, cannot calculate position. Measurements: ${validBeaconMeasurements.size}")
         }
     }
 
     fun clearToastMessage() {
-        _toastMessage.postValue(null)
+        _toastMessage.value = null
     }
-
-    // Add other logic from MainActivity that should reside in ViewModel
-    // e.g., complex calculations, data transformations, business logic for beacon interactions.
 }
