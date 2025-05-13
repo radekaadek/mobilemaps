@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
-// import android.graphics.drawable.Drawable // Not directly used here after refactor
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
@@ -20,7 +19,7 @@ import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Observer // Keep this for BeaconManager's RegionViewModel
+import androidx.lifecycle.Observer
 import org.altbeacon.beacon.Beacon
 import org.altbeacon.beacon.BeaconManager
 import org.altbeacon.beacon.BeaconParser
@@ -62,14 +61,12 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().load(applicationContext, getPreferences(MODE_PRIVATE))
-        // IMPORTANT: Make sure you have a layout file named "activity_main.xml" in res/layout
         setContentView(R.layout.activity_main)
 
-        // IMPORTANT: Make sure your activity_main.xml contains a MapView with this ID
         mapView = findViewById(R.id.mapView)
 
 
-        initializeMapSettings() // Renamed from initializeMap to avoid conflict with mapView init
+        initializeMapSettings()
         observeViewModel()
         setupListeners()
         registerReceivers()
@@ -85,16 +82,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun observeViewModel() {
-        // Obsługa beaconMapData: Sprawdzamy, czy 'it' nie jest null
         mainViewModel.beaconMapData.observe(this) { beacons ->
-            // Użyjemy 'let' do bezpiecznego wywołania kodu tylko, gdy 'beacons' nie jest null
-            beacons?.let { // Dodana obsługa nullability
+            beacons?.let {
                 Log.d(TAG, "Observer: Beacon map data updated with ${it.size} beacons.")
                 if (it.isNotEmpty()) {
                     drawStaticBeaconMarkers(it)
                 }
             } ?: run {
-                // Opcjonalnie: obsłuż sytuację, gdy beacons jest null, np. wyczyść markery
                 Log.w(TAG, "Observer: beaconMapData received null.")
                 beaconIdToMarker.values.forEach { mapView.overlays.remove(it) }
                 beaconIdToMarker.clear()
@@ -102,92 +96,72 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Obsługa currentPosition: Sprawdzamy, czy 'it' nie jest null
         mainViewModel.currentPosition.observe(this) { newPosition ->
-            newPosition?.let { // Dodana obsługa nullability
+            newPosition?.let {
                 Log.d(TAG, "Observer: Current position updated to $it")
                 updatePositionMarker(it)
             } ?: run {
                 Log.w(TAG, "Observer: currentPosition received null.")
-                // Opcjonalnie: obsłuż sytuację, gdy newPosition jest null
             }
         }
 
-        // Obsługa scanningState: Sprawdzamy, czy 'it' nie jest null
         mainViewModel.scanningState.observe(this) { isScanning ->
-            isScanning?.let { // Dodana obsługa nullability
+            isScanning?.let {
                 Log.d(TAG, "Observer: Scanning state updated to $it")
                 val windowWasOpened = positionMarker?.isInfoWindowShown == true
-                if (!it) { // Używamy 'it' zamiast 'isScanning' wewnątrz let
+                if (!it) {
                     positionMarker?.apply {
                         closeInfoWindow()
-                        // IMPORTANT: Replace with your actual string resource
                         title = getString(R.string.last_known_position)
                         if (windowWasOpened) showInfoWindow()
                     }
                     clearDynamicOverlays()
-                    // Bezpiecznie wywołujemy mainViewModel.beaconMapData.value?.let
                     mainViewModel.beaconMapData.value?.let { beaconMap ->
                         updateBeaconMarkerVisuals(beaconMap, emptySet(), mainViewModel.currentFloor.value)
                     }
                 } else {
-                    positionMarker?.title = getString(R.string.current_position) // IMPORTANT: Replace
-                    setupPositionMarker() // Ensure marker is present and titled correctly
+                    positionMarker?.title = getString(R.string.current_position)
+                    setupPositionMarker()
                 }
                 mapView.invalidate()
             } ?: run {
                 Log.w(TAG, "Observer: scanningState received null.")
-                // Opcjonalnie: obsłuż sytuację, gdy isScanning jest null
             }
         }
 
-        // Wspólny obserwator dla greenBeaconIds, redBeaconIds, currentFloor
-        // Ten obserwator jest typu Observer<Any>, co sugeruje, że 'it' może być różnego typu
-        // Dodajemy obsługę nullability dla 'it' oraz sprawdzamy typ, jeśli jest to konieczne.
-        val visualUpdateObserver = Observer<Any?> { // Zmieniono na Observer<Any?> dla obsługi nullability
-            // Sprawdzamy, czy 'it' nie jest null przed użyciem
-            it?.let { data -> // Dodana obsługa nullability i nazwanie parametru 'data'
+        val visualUpdateObserver = Observer<Any?> {
+            it?.let { data ->
                 if (mainViewModel.scanningState.value == true) {
-                    // W trybie skanowania, redrawDynamicOverlays bazuje na lastDetectedBeacons.value
-                    // Niezależnie od tego, co zostało zaktualizowane (green, red, floor),
-                    // chcemy przerysować dynamiczne elementy, jeśli skanujemy.
-                    // Dodajemy bezpieczne wywołanie .value?
                     mainViewModel.lastDetectedBeacons.value?.let { beacons ->
                         redrawDynamicOverlays(beacons)
                     }
                 } else {
-                    if (data is Int? && mainViewModel.scanningState.value == false) { // Sprawdzamy typ, jeśli nie skanujemy
-                        // Logika dla aktualizacji wizualnych na podstawie currentFloor, gdy nie skanujemy
-                        // Bezpiecznie wywołujemy .value?.let
+                    if (data is Int && mainViewModel.scanningState.value == false) {
                         mainViewModel.beaconMapData.value?.let { beaconMap ->
-                            updateBeaconMarkerVisuals(beaconMap, emptySet(), data) // data to aktualna wartość currentFloor
+                            updateBeaconMarkerVisuals(beaconMap, emptySet(), data)
                             mapView.invalidate()
                         }
                     }
-                    else {}
+                    else {
+                        Log.w(TAG, "Observer: visualUpdateObserver received unexpected data: $data")
+                    }
                 }
             } ?: run {
                 Log.w(TAG, "Observer: visualUpdateObserver received null data.")
-                // Opcjonalnie: obsłuż sytuację, gdy dane są null
             }
         }
 
-        // Rejestrujemy obserwatorów dla poszczególnych LiveData
-        mainViewModel.greenBeaconIds.observe(this, visualUpdateObserver as Observer<in Set<String>?>) // Rzutowanie z obsługą nullability
-        mainViewModel.redBeaconIds.observe(this, visualUpdateObserver as Observer<in Set<String>?>) // Rzutowanie z obsługą nullability
-        mainViewModel.currentFloor.observe(this, visualUpdateObserver as Observer<in Int?>) // Rzutowanie z obsługą nullability
+        mainViewModel.greenBeaconIds.observe(this, visualUpdateObserver as Observer<in Set<String>?>)
+        mainViewModel.redBeaconIds.observe(this, visualUpdateObserver as Observer<in Set<String>?>)
+        mainViewModel.currentFloor.observe(this, visualUpdateObserver as Observer<in Int?>)
 
 
-        // Obsługa toastMessage: Sprawdzamy, czy 'it' nie jest null
         mainViewModel.toastMessage.observe(this) { message ->
-            message?.let { // Dodana obsługa nullability
+            message?.let {
                 Toast.makeText(this, it, Toast.LENGTH_LONG).show()
                 mainViewModel.clearToastMessage()
             } ?: run {
                 Log.w(TAG, "Observer: toastMessage received null.")
-                // Obsługa null dla toastMessage nie jest zazwyczaj konieczna,
-                // ponieważ clearToastMessage ustawia wartość na null,
-                // ale obsługa let/run{} jest dobrym nawykiem.
             }
         }
     }
@@ -216,7 +190,6 @@ class MainActivity : AppCompatActivity() {
 
     //region UI Setup
     private fun setupListeners() {
-        // IMPORTANT: Make sure your activity_main.xml contains Buttons with these IDs
         findViewById<Button>(R.id.start).setOnClickListener {
             startBeaconScanning()
         }
@@ -230,7 +203,7 @@ class MainActivity : AppCompatActivity() {
         rotationGestureOverlay = RotationGestureOverlay(mapView).apply {
             isEnabled = true
         }
-        if (!mapView.overlays.contains(rotationGestureOverlay)) { // Add only if not already present
+        if (!mapView.overlays.contains(rotationGestureOverlay)) {
             mapView.overlays.add(rotationGestureOverlay)
         }
     }
@@ -239,7 +212,6 @@ class MainActivity : AppCompatActivity() {
         beaconIdToMarker.values.forEach { mapView.overlays.remove(it) }
         beaconIdToMarker.clear()
 
-        // IMPORTANT: Replace with your actual drawable resource
         val defaultIcon = MapUtils.getScaledDrawable(this, R.drawable.greydot, MARKER_DIMENSIONS_GREY.first, MARKER_DIMENSIONS_GREY.second)
         if (defaultIcon == null) Log.e(TAG, "Failed to create default beacon icon.")
 
@@ -247,7 +219,6 @@ class MainActivity : AppCompatActivity() {
             val marker = Marker(mapView).apply {
                 position = GeoPoint(beaconData.latitude, beaconData.longitude)
                 title = beaconId
-                // IMPORTANT: Replace with your actual drawable resource
                 icon = defaultIcon ?: ContextCompat.getDrawable(this@MainActivity, R.drawable.greydot)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             }
@@ -262,12 +233,11 @@ class MainActivity : AppCompatActivity() {
         if (positionMarker == null) {
             positionMarker = Marker(mapView).apply {
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                // IMPORTANT: Replace with your actual drawable resource
                 icon = MapUtils.getScaledDrawable(this@MainActivity, R.drawable.miku, MARKER_DIMENSIONS_USER.first, MARKER_DIMENSIONS_USER.second)
                     ?: ContextCompat.getDrawable(this@MainActivity, R.drawable.miku)
                 title = if (mainViewModel.scanningState.value == true) getString(R.string.current_position) else getString(R.string.last_known_position) // IMPORTANT: Replace
             }
-            if(!mapView.overlays.contains(positionMarker)) { // Add only if not already present
+            if(!mapView.overlays.contains(positionMarker)) {
                 mapView.overlays.add(positionMarker)
             }
         }
@@ -285,7 +255,7 @@ class MainActivity : AppCompatActivity() {
     //region Core Logic - Beacon Scanning
     private fun startBeaconScanning() {
         if (mainViewModel.scanningState.value == true) {
-            Toast.makeText(this, R.string.scanning_already_in_progress, Toast.LENGTH_SHORT).show() // IMPORTANT: Replace
+            Toast.makeText(this, R.string.scanning_already_in_progress, Toast.LENGTH_SHORT).show()
             return
         }
         if (!checkPermissions()) return
@@ -293,7 +263,7 @@ class MainActivity : AppCompatActivity() {
 
         Log.d(TAG, "Starting beacon scanning...")
         mainViewModel.updateScanningState(true)
-        Toast.makeText(this, R.string.scanning_beacons_start, Toast.LENGTH_SHORT).show() // IMPORTANT: Replace
+        Toast.makeText(this, R.string.scanning_beacons_start, Toast.LENGTH_SHORT).show()
 
         if (beaconManager == null) {
             beaconManager = BeaconManager.getInstanceForApplication(this).apply {
@@ -311,7 +281,7 @@ class MainActivity : AppCompatActivity() {
         beaconManager?.apply {
             try {
                 val regionViewModel = getRegionViewModel(region)
-                regionViewModel.regionState.removeObserver(monitoringObserver) // Ensure not doubly added
+                regionViewModel.regionState.removeObserver(monitoringObserver)
                 regionViewModel.regionState.observe(this@MainActivity, monitoringObserver)
 
                 removeAllRangeNotifiers()
@@ -322,17 +292,18 @@ class MainActivity : AppCompatActivity() {
                 startRangingBeacons(region)
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting beacon scanning", e)
-                Toast.makeText(this@MainActivity, R.string.error_starting_scanning, Toast.LENGTH_SHORT).show() // IMPORTANT: Replace
+                Toast.makeText(this@MainActivity, R.string.error_starting_scanning, Toast.LENGTH_SHORT).show()
                 mainViewModel.updateScanningState(false)
             }
         }
     }
 
     private fun stopBeaconScanning() {
-        if (mainViewModel.scanningState.value != true) return // Simplified check
+        Log.d(TAG, "Attempting to stop beacon scanning...")
+        if (mainViewModel.scanningState.value != true) return
         Log.d(TAG, "Stopping beacon scanning...")
         stopBeaconScanningInternal()
-        Toast.makeText(this, R.string.stopped_scanning_beacons, Toast.LENGTH_SHORT).show() // IMPORTANT: Replace
+        Toast.makeText(this, R.string.stopped_scanning_beacons, Toast.LENGTH_SHORT).show()
     }
 
     private fun stopBeaconScanningInternal() {
@@ -353,12 +324,9 @@ class MainActivity : AppCompatActivity() {
         if (mainViewModel.scanningState.value != true) return
 
         Log.d(TAG, "Detected ${beacons.size} beacons.")
-        mainViewModel.processBeaconRangingUpdate(beacons) // This will update LiveData
+        mainViewModel.processBeaconRangingUpdate(beacons)
 
-        // Visual updates are now primarily handled by observers on greenBeaconIds, redBeaconIds, currentFloor
-        // However, we still need to call redrawDynamicOverlays to update lines/circles
-        // and ensure marker icons are in sync if observers didn't catch all nuances.
-        redrawDynamicOverlays(beacons) // Keep this for lines/circles and ensuring icon sync
+        redrawDynamicOverlays(beacons)
         mapView.invalidate()
     }
 
@@ -379,7 +347,6 @@ class MainActivity : AppCompatActivity() {
         greenBeaconIds: Set<String>,
         currentFloor: Int?
     ) {
-        // IMPORTANT: Replace with your actual drawable resources
         val greenIcon = MapUtils.getScaledDrawable(this, R.drawable.greendot, MARKER_DIMENSIONS_GREEN.first, MARKER_DIMENSIONS_GREEN.second)
         val redIcon = MapUtils.getScaledDrawable(this, R.drawable.reddot, MARKER_DIMENSIONS_RED.first, MARKER_DIMENSIONS_RED.second)
         val greyIcon = MapUtils.getScaledDrawable(this, R.drawable.greydot, MARKER_DIMENSIONS_GREY.first, MARKER_DIMENSIONS_GREY.second)
@@ -390,7 +357,7 @@ class MainActivity : AppCompatActivity() {
                 greenBeaconIds.contains(id) -> greenIcon
                 beaconDetails?.floorId == currentFloor -> redIcon
                 else -> greyIcon
-            } ?: ContextCompat.getDrawable(this, R.drawable.greydot) // Fallback
+            } ?: ContextCompat.getDrawable(this, R.drawable.greydot)
         }
     }
 
@@ -472,11 +439,9 @@ class MainActivity : AppCompatActivity() {
             }
             if (allGranted) {
                 if (servicesTriggerCheck()) {
-                    // IMPORTANT: Replace with your actual string resource
                     Toast.makeText(this, R.string.permissions_granted, Toast.LENGTH_SHORT).show()
                 }
             } else {
-                // IMPORTANT: Replace with your actual string resource
                 Toast.makeText(this, R.string.permissions_denied, Toast.LENGTH_LONG).show()
             }
         }
@@ -490,9 +455,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkBluetoothON(): Boolean {
         val btManager = applicationContext.getSystemService(BLUETOOTH_SERVICE) as? BluetoothManager
-        bluetoothEnabled = btManager?.adapter?.isEnabled == true // Corrected elvis usage
+        bluetoothEnabled = btManager?.adapter?.isEnabled == true
         if (!bluetoothEnabled) {
-            // IMPORTANT: Replace with your actual string resources
             showExplanation(getString(R.string.bluetooth_disabled_title), getString(R.string.bluetooth_disabled_message))
         }
         return bluetoothEnabled
@@ -503,11 +467,9 @@ class MainActivity : AppCompatActivity() {
         locationEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             locManager.isLocationEnabled
         } else {
-            @Suppress("DEPRECATION")
             locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
         }
         if (!locationEnabled) {
-            // IMPORTANT: Replace with your actual string resources
             showExplanation(getString(R.string.location_disabled_title), getString(R.string.location_disabled_message))
         }
         return locationEnabled
@@ -528,14 +490,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPermissionDeniedExplanation(permission: String) {
-        // IMPORTANT: Replace with your actual string resources
         val message = when (permission) {
             Manifest.permission.ACCESS_FINE_LOCATION -> getString(R.string.permission_denied_fine_location)
             Manifest.permission.BLUETOOTH_SCAN -> getString(R.string.permission_denied_bluetooth_scan)
             Manifest.permission.BLUETOOTH_CONNECT -> getString(R.string.permission_denied_bluetooth_connect)
             else -> getString(R.string.permission_denied_generic)
         }
-        showExplanation(getString(R.string.permission_denied_title), message) // IMPORTANT: Replace
+        showExplanation(getString(R.string.permission_denied_title), message)
     }
     //endregion
 
@@ -564,7 +525,6 @@ class MainActivity : AppCompatActivity() {
                 if (previousBluetoothState != bluetoothEnabled) {
                     if (!bluetoothEnabled && mainViewModel.scanningState.value == true) {
                         stopBeaconScanningInternal()
-                        // IMPORTANT: Replace with your actual string resources
                         showExplanation(getString(R.string.bluetooth_disabled_title), getString(R.string.bluetooth_turned_off_scanning_stopped))
                     }
                 }
@@ -580,14 +540,12 @@ class MainActivity : AppCompatActivity() {
                 locationEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     locManager.isLocationEnabled
                 } else {
-                    @Suppress("DEPRECATION")
                     locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                 }
 
                 if (previousLocationState != locationEnabled) {
                     if (!locationEnabled && mainViewModel.scanningState.value == true) {
                         stopBeaconScanningInternal()
-                        // IMPORTANT: Replace with your actual string resources
                         showExplanation(getString(R.string.location_disabled_title), getString(R.string.location_turned_off_scanning_stopped))
                     }
                 }

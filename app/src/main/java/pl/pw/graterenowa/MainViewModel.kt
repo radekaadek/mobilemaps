@@ -80,7 +80,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateScanningState(isScanning: Boolean) {
-        _scanningState.value = isScanning // Use .value for MutableLiveData direct assignment
+        _scanningState.value = isScanning
         if (!isScanning) {
             _greenBeaconIds.value = emptySet()
             _currentFloor.value?.let { floor ->
@@ -91,7 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun processBeaconRangingUpdate(beacons: Collection<Beacon>) {
-        if (_scanningState.value != true) { // Corrected check
+        if (_scanningState.value != true) {
             _lastDetectedBeacons.value = emptyList()
             return
         }
@@ -104,20 +104,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var floorToSet = detectedFloorCandidate
 
         if (detectedFloorCandidate == null && previousFloor != null) {
-            // If no floor is detected now, but we had one, stick with the previous one for red beacons.
             floorToSet = previousFloor
         }
 
-        if (floorToSet != previousFloor && floorToSet != null) { // Condition includes initial floor set
+        if (floorToSet != previousFloor && floorToSet != null) {
             _currentFloor.value = floorToSet
         }
-        // If floorToSet is null (no beacons, no previous floor), currentFloor remains null.
 
-        // Update red beacons based on the 'floorToSet' (which could be newly detected or the previous one)
         if (floorToSet != null) {
             updateRedBeaconIdsInternal(floorToSet, detectedBeaconIdsInProximity)
         } else {
-            _redBeaconIds.value = emptySet() // No floor context, clear red beacons
+            _redBeaconIds.value = emptySet()
         }
 
         val relevantBeaconsForPositioning = beacons.filter {
@@ -142,13 +139,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return Pair(emptySet(), null)
         }
 
-        // Determine floor: floor of the closest beacon.
         val closestBeaconData = detectedBeaconDetails.minByOrNull { it.second }?.first
         val currentFloorCandidate = closestBeaconData?.floorId
 
-        // Green beacons are those considered "active" for the current floor or primary interaction
         val greenIds = detectedBeaconDetails
-            .filter { (data, _) -> data.floorId == currentFloorCandidate || currentFloorCandidate == null } // If no floor determined, all are candidates
+            .filter { (data, _) -> data.floorId == currentFloorCandidate || currentFloorCandidate == null }
             .map { it.first.beaconUid }
             .toSet()
 
@@ -181,7 +176,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var weightedLonSum = 0.0
 
         validBeaconMeasurements.forEach { (lat, lon, distance) ->
-            val weight = 1.0 / (distance.pow(2).coerceAtLeast(1e-9)) // Ensure weight denominator is not zero
+            val weight = 1.0 / (distance.pow(2).coerceAtLeast(1e-9))
             weightedLatSum += lat * weight
             weightedLonSum += lon * weight
             totalWeight += weight
