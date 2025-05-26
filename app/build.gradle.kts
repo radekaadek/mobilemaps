@@ -38,6 +38,7 @@ android {
 dependencies {
     implementation(libs.osmdroid)
     implementation(libs.gson)
+    implementation(libs.arcgis.maps.kotlin)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
